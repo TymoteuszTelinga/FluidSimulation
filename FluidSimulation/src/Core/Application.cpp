@@ -8,6 +8,8 @@ Application::Application(const ApplicationSpecification& spec)
 	s_Instance = this;
 
 	m_Window = CreateScope<Window>(m_Specification.Width, m_Specification.Height);
+	m_Window->SetEventCallback(BIND_EVENT(Application::OnEventApp));
+
 	m_Renderer = CreateScope<Renderer>();
 	m_Renderer->Init(m_Specification.Name, m_Window);
 }
@@ -50,4 +52,10 @@ void Application::Run()
 		m_DeltaTime = time - m_LastTime;
 		m_LastTime = time;
 	}
+}
+
+void Application::OnEventApp(Event& e)
+{
+	//Log Event
+	OnEvent(e);
 }

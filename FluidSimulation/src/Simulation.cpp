@@ -9,7 +9,31 @@ Simulation::~Simulation()
 {
 }
 
+void Simulation::OnEvent(Event& e)
+{
+	EventDispatcher dispacher(e);
+	dispacher.Dispatch<WindowResizeEvent>(BIND_EVENT(Simulation::OnResize));
+
+}
+
 void Simulation::OnRender()
 {
-	m_Renderer->RenderFrame();
+	if (!bPoused)
+	{
+		m_Renderer->RenderFrame();
+	}
+}
+
+bool Simulation::OnResize(WindowResizeEvent& e)
+{
+	if (e.GetWidth() == 0 || e.GetHeight() == 0)
+	{
+		bPoused = true;
+		return true;
+	}
+
+	bPoused = false;
+
+
+	return true;
 }

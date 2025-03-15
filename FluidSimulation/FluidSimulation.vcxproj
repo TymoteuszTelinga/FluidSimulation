@@ -152,7 +152,10 @@
   <ItemGroup>
     <ClInclude Include="src\Core\Application.h" />
     <ClInclude Include="src\Core\Base.h" />
+    <ClInclude Include="src\Core\Log.h" />
     <ClInclude Include="src\Core\Window.h" />
+    <ClInclude Include="src\Events\Event.h" />
+    <ClInclude Include="src\Events\WindowEvent.h" />
     <ClInclude Include="src\Renderer\Renderer.h" />
     <ClInclude Include="src\Simulation.h" />
   </ItemGroup>

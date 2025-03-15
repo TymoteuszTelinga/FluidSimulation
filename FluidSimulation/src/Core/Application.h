@@ -19,7 +19,12 @@ public:
 	~Application();
 
 	virtual void Run();
+
+	virtual void OnEvent(Event& e) {};
 	virtual void OnRender() {};
+
+private:
+	void OnEventApp(Event& e);
 
 protected:
 	ApplicationSpecification m_Specification;

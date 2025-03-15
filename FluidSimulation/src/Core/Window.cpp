@@ -1,6 +1,6 @@
 
 #include "Window.h"
-
+#include "Events/WindowEvent.h"
 #include <iostream>
 
 Window::Window(uint32_t width, uint32_t height)
@@ -31,6 +31,19 @@ bool Window::Init()
 		return false;
 	}
 
+	glfwSetWindowUserPointer(m_Window, &m_Data);
+
+	// Set GLFW callbacks
+	glfwSetWindowSizeCallback(m_Window, [](GLFWwindow* window, int width, int height)
+		{
+			WindowData& data = *(WindowData*)glfwGetWindowUserPointer(window);
+			data.width = width;
+			data.height = height;
+
+			WindowResizeEvent event(width, height);
+			data.callback(event);
+		});
+
 	return false;
 }
 
@@ -47,4 +60,9 @@ void Window::OnUpdate()
 bool Window::IsOpen() const
 {
 	return !glfwWindowShouldClose(m_Window);
+}
+
+void Window::SetEventCallback(const EventCallbackFn& callback)
+{
+	m_Data.callback = callback;
 }
