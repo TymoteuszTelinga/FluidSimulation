@@ -1,5 +1,7 @@
 #include "Simulation.h"
 
+#include "Core/Log.h"
+
 Simulation::Simulation(const ApplicationSpecification& spec)
 	:Application(spec)
 {
@@ -34,6 +36,7 @@ bool Simulation::OnResize(WindowResizeEvent& e)
 
 	bPoused = false;
 
+	LOG(DEBUG, "Window size (%u x %u)", e.GetWidth(), e.GetHeight())
 
 	return true;
 }

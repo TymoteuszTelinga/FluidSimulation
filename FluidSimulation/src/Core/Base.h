@@ -2,6 +2,7 @@
 
 #include <memory>
 #include <vector>
+#include "Log.h"
 
 template<typename T>
 using Scope = std::unique_ptr<T>;

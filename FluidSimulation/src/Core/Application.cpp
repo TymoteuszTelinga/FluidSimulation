@@ -1,5 +1,7 @@
 #include "Application.h"
 
+#include "Log.h"
+
 Application* Application::s_Instance = nullptr;
 
 Application::Application(const ApplicationSpecification& spec)
@@ -12,6 +14,8 @@ Application::Application(const ApplicationSpecification& spec)
 
 	m_Renderer = CreateScope<Renderer>();
 	m_Renderer->Init(m_Specification.Name, m_Window);
+
+	LOG(INFO, "Aplication Init complite")
 }
 
 Application::~Application()

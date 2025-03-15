@@ -101,7 +101,7 @@ void Renderer::CreateInstance(const std::string& applicationName)
 	VkResult res = vkCreateInstance(&InstanceCreateInfo, nullptr, &m_Instance);
 	if (res != VK_SUCCESS)
 	{
-		std::cout << "Instance creation Error\n";
+		LOG(CRITICAL, "Instance creation Error")
 	}
 }
 
@@ -186,7 +186,7 @@ void Renderer::CreateDebugCallback()
 	VkResult res = vkCreateDebugUtilsMessenger(m_Instance, &MessengerCreateInfo, nullptr, &m_DebugMessenger);
 	if (res != VK_SUCCESS)
 	{
-		std::cout << "DebugCallback creation Error\n";
+		LOG(WARNING, "DebugCallback creation Error");
 	}
 }
 
@@ -194,7 +194,7 @@ void Renderer::CreateSurface(const Scope<Window>& window)
 {
 	if (glfwCreateWindowSurface(m_Instance, window->GetWindow(), nullptr, &m_Surface))
 	{
-		std::cout << "Surface creattion error\n";
+		LOG(CRITICAL, "Surface creattion error");
 	}
 }
 
@@ -251,7 +251,7 @@ void Renderer::CreateLogicalDevice()
 
 	if (baseQueue == presetQueue)
 	{
-		std::cout << "one que to rule all\n";
+		LOG(INFO, "one que to rule all");
 	}
 
 	VkDeviceQueueCreateInfo queueCreateInfo =
@@ -314,7 +314,7 @@ void Renderer::CreateSwapChain()
 	uint32_t queueFamily = m_PhysicalDevice.GetFamilyQueue(VK_QUEUE_GRAPHICS_BIT);
 	m_ImageExtend = SurfaceCapabilities.currentExtent;
 
-	printf("LOG: CurentExtend %u | %u\n", m_ImageExtend.width, m_ImageExtend.height);
+	LOG(WARNING, "SwapChain resize %u | %u", m_ImageExtend.width, m_ImageExtend.height);
 
 	VkSwapchainCreateInfoKHR SwapChainCreateInfo =
 	{
@@ -411,7 +411,7 @@ static std::vector<char> readFile(const std::string& filename)
 	std::ifstream file(filename, std::ios::binary);
 	if (!file)
 	{
-		std::cout << "Open file Error\n";
+		LOG(ERROR, "Open file Error (%s)", filename.c_str());
 	}
 
 	file.seekg(0, std::ios::end);
@@ -818,11 +818,11 @@ void Renderer::RenderFrame()
 {
 	vkWaitForFences(m_Device, 1, &m_InFlightFences[curentFrame], VK_TRUE, UINT64_MAX);
 	
-
 	uint32_t imageIndex;
 	VkResult result = vkAcquireNextImageKHR(m_Device, m_Swapchain, UINT64_MAX, m_ImageAvailableSemaphores[curentFrame], VK_NULL_HANDLE, &imageIndex);
 	if (result == VK_ERROR_OUT_OF_DATE_KHR)
 	{
+
 		RecreateSwapChain();
 		return;
 	}
