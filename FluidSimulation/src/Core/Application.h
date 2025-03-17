@@ -20,8 +20,9 @@ public:
 
 	virtual void Run();
 
-	virtual void OnEvent(Event& e) {};
+	virtual void OnUpdate(float deltaTime) {};
 	virtual void OnRender() {};
+	virtual void OnEvent(Event& e) {};
 
 private:
 	void OnEventApp(Event& e);

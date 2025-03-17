@@ -1,7 +1,5 @@
 #include "Simulation.h"
 
-#include "Core/Log.h"
-
 Simulation::Simulation(const ApplicationSpecification& spec)
 	:Application(spec)
 {
@@ -18,12 +16,18 @@ void Simulation::OnEvent(Event& e)
 
 }
 
-void Simulation::OnRender()
+void Simulation::OnUpdate(float deltaTime)
 {
+	static float totalTime = 0;
 	if (!bPoused)
 	{
-		m_Renderer->RenderFrame();
+		totalTime += deltaTime;
+		m_Renderer->RenderFrame(totalTime);
 	}
+}
+
+void Simulation::OnRender()
+{
 }
 
 bool Simulation::OnResize(WindowResizeEvent& e)
@@ -36,7 +40,7 @@ bool Simulation::OnResize(WindowResizeEvent& e)
 
 	bPoused = false;
 
-	LOG(DEBUG, "Window size (%u x %u)", e.GetWidth(), e.GetHeight())
+	LOG(INFO, "Window size (%u x %u)", e.GetWidth(), e.GetHeight())
 
 	return true;
 }

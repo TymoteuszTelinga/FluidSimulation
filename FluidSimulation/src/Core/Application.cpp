@@ -15,7 +15,7 @@ Application::Application(const ApplicationSpecification& spec)
 	m_Renderer = CreateScope<Renderer>();
 	m_Renderer->Init(m_Specification.Name, m_Window);
 
-	LOG(INFO, "Aplication Init complite")
+	LOG(INFO, "Aplication Init complite");
 }
 
 Application::~Application()
@@ -50,6 +50,7 @@ void Application::Run()
 
 		m_Window->OnUpdate();
 
+		OnUpdate(m_DeltaTime);
 		OnRender();
 
 		float time = glfwGetTime();

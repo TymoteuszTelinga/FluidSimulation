@@ -7,7 +7,8 @@
 
     static const char* levelToString(LogLevel level)
     {
-        switch (level) {
+        switch (level) 
+        {
         case DEBUG:
             return "DEBUG";
         case INFO:
@@ -23,6 +24,25 @@
         }
     }
 
+    static const char* levelToColorId(LogLevel level)
+    {
+        switch (level)
+        {
+        case DEBUG:
+            return "[32m"; //green
+        case INFO:
+            return "[37m"; //white
+        case WARNING:
+            return "[33m"; //yellow
+        case ERROR:
+            return "[31m"; //red
+        case CRITICAL:
+            return "[34m"; //blue
+        default:
+            return "[37m"; //white
+        }
+    }
+
     static void log_message(LogLevel level, const char* message, auto&&... args)
     {
         time_t now = time(0);
@@ -31,9 +51,9 @@
         char timestamp[20];
         strftime(timestamp, sizeof(timestamp), "%Y-%m-%d %H:%M:%S", &timeinfo);
 
-        printf("[%s] %s: ",timestamp ,levelToString(level));
+        printf("\033%s[%s] %s: ", levelToColorId(level), timestamp, levelToString(level));
         printf(message, std::forward<decltype(args)>(args)...);
-        printf("\n");
+        printf("\033[0m\n");
     }
 
     #define LOG(level, msg, ...) log_message(level, msg, __VA_ARGS__);

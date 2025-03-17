@@ -9,8 +9,9 @@ public:
 	Simulation(const ApplicationSpecification& spec);
 	~Simulation();
 
-	virtual void OnEvent(Event& e);
+	virtual void OnUpdate(float deltaTime) override;
 	virtual void OnRender() override;
+	virtual void OnEvent(Event& e);
 
 private:
 
