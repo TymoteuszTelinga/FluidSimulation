@@ -33,20 +33,21 @@ void Application::Run()
 	//main loop
 	while (m_Window->IsOpen() && m_Runing)
 	{
-		/*counter++;
+		counter++;
 		TotalTime += m_DeltaTime;
 
-		if (TotalTime >= 1.0 / 10.0)
+		if (TotalTime >= 1.0 / 1.0)
 		{
 			float FPS = (1.0 / TotalTime) * counter;
 			float FrameTime = TotalTime / counter * 1000;
 
-			printf("FPS: %.1f\n", FPS);
-			printf("Time: %.3f\n", FrameTime);
+			LOG(INFO, "FPS: %.1f, Time: %.3f ms", FPS, FrameTime)
+			//printf("FPS: %.1f, ", FPS);
+			//printf("Time: %.3f\n", FrameTime);
 
 			TotalTime = 0.0f;
 			counter = 0;
-		}*/
+		}
 
 		m_Window->OnUpdate();
 

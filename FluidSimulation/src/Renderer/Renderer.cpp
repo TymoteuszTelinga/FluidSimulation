@@ -74,8 +74,8 @@ static const std::vector<Vertex> vertices =
 
 const std::vector<uint16_t> indices = 
 {
-	0, 1, 2, 2, 3, 0,
-	4, 5, 6, 6, 7, 4
+	0, 1, 2, 2, 3, 0
+	//4, 5, 6, 6, 7, 4
 };
 
 struct UniformBufferObject
@@ -127,6 +127,9 @@ Renderer::~Renderer()
 
 	ClearSwapChain();
 
+	m_MSAAImage.Free();
+	m_DepthImage.Free();
+
 	vkDestroyDevice(m_Device, nullptr);
 
 	PFN_vkDestroySurfaceKHR vkDestroySurface = VK_NULL_HANDLE;
@@ -157,8 +160,31 @@ void Renderer::Init(const std::string& applicationName, const Scope<Window>& win
 	CreateGraphicsPipeline();
 
 	CreateComandPool();
-	CreateColorResources();
-	CreateDepthResources();
+
+	ImageSpecification MSAASpec =
+	{
+		.device = {m_Device, m_PhysicalDevice.PhysicalDeviceHandle},
+		.size = m_ImageExtend,
+		.format = c_SwapChainFormat.format,
+		.usage = VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
+		.aspectFlags = VK_IMAGE_ASPECT_COLOR_BIT,
+		.samples = c_MSAACount,
+		.tiling = VK_IMAGE_TILING_OPTIMAL
+	};
+	m_MSAAImage.Init(MSAASpec);
+
+	ImageSpecification depthSpec =
+	{
+		.device = {m_Device, m_PhysicalDevice.PhysicalDeviceHandle},
+		.size = m_ImageExtend,
+		.format = VK_FORMAT_D32_SFLOAT,
+		.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
+		.aspectFlags = VK_IMAGE_ASPECT_DEPTH_BIT,
+		.samples = c_MSAACount,
+		.tiling = VK_IMAGE_TILING_OPTIMAL
+	};
+	m_DepthImage.Init(depthSpec);
+
 	CreateFramebuffers();
 
 	CreateVertexBuffer();
@@ -416,11 +442,7 @@ void Renderer::CreateSwapChain()
 	}
 
 	VkPresentModeKHR PresentMode = VK_PRESENT_MODE_FIFO_KHR;//alway suported (vsync on) in future chenge to Imidient mode (vsync off)
-	//PresentMode = VK_PRESENT_MODE_IMMEDIATE_KHR; //vsync off
-
-	//chek if phisical device suport specific format 
-	m_SwapChainFormat.format = VK_FORMAT_B8G8R8A8_SRGB;
-	m_SwapChainFormat.colorSpace = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR;
+	PresentMode = VK_PRESENT_MODE_IMMEDIATE_KHR; //vsync off
 
 	uint32_t queueFamily = m_PhysicalDevice.GetFamilyQueue(VK_QUEUE_GRAPHICS_BIT);
 	m_ImageExtend = SurfaceCapabilities.currentExtent;
@@ -434,8 +456,8 @@ void Renderer::CreateSwapChain()
 		.flags = 0,
 		.surface = m_Surface,
 		.minImageCount = ImagesCount,
-		.imageFormat = m_SwapChainFormat.format,
-		.imageColorSpace = m_SwapChainFormat.colorSpace,
+		.imageFormat = c_SwapChainFormat.format,
+		.imageColorSpace = c_SwapChainFormat.colorSpace,
 		.imageExtent = m_ImageExtend,
 		.imageArrayLayers = 1,
 		.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
@@ -457,7 +479,7 @@ void Renderer::CreateSwapChain()
 	
 	for (size_t i = 0; i < m_Images.size(); i++)
 	{
-		m_ImageViews[i] = CreateImageView(m_Device, m_Images[i], m_SwapChainFormat.format, VK_IMAGE_ASPECT_COLOR_BIT);
+		m_ImageViews[i] = Image::CreateImageView(m_Device, m_Images[i], c_SwapChainFormat.format, VK_IMAGE_ASPECT_COLOR_BIT);
 	}
 
 }
@@ -468,7 +490,7 @@ void Renderer::CreateRenderPass()
 	VkAttachmentDescription colorAttachment =
 	{
 		.flags = 0,
-		.format = m_SwapChainFormat.format,
+		.format = c_SwapChainFormat.format,
 		.samples = c_MSAACount,
 		.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
 		.storeOp = VK_ATTACHMENT_STORE_OP_STORE,
@@ -507,7 +529,7 @@ void Renderer::CreateRenderPass()
 	VkAttachmentDescription colorAttachmentResolve =
 	{
 		.flags = 0,
-		.format = m_SwapChainFormat.format,
+		.format = c_SwapChainFormat.format,
 		.samples = VK_SAMPLE_COUNT_1_BIT,
 		.loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
 		.storeOp = VK_ATTACHMENT_STORE_OP_STORE,
@@ -834,7 +856,7 @@ void Renderer::CreateFramebuffers()
 
 	for (size_t i = 0; i < m_ImageViews.size(); i++)
 	{
-		VkImageView attachments[3] = { m_MSAAImageView, m_DepthImageView, m_ImageViews[i] };
+		VkImageView attachments[3] = { m_MSAAImage.GetImageView(), m_DepthImage.GetImageView(), m_ImageViews[i]};
 		VkFramebufferCreateInfo framebufferInfo =
 		{
 			.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
@@ -863,24 +885,6 @@ void Renderer::CreateComandPool()
 	};
 
 	vkCreateCommandPool(m_Device, &commandPoolInfo, nullptr, &m_CommandPool);
-}
-
-void Renderer::CreateColorResources()
-{
-	const VkFormat msaaColorFormat = m_SwapChainFormat.format;
-	const VkImageUsageFlags usage = VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
-
-	CreateImage(msaaColorFormat, c_MSAACount, VK_IMAGE_TILING_OPTIMAL, usage, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, m_MSAAImage, m_MSAAImageMemory);
-	m_MSAAImageView = CreateImageView(m_Device, m_MSAAImage, msaaColorFormat, VK_IMAGE_ASPECT_COLOR_BIT);
-}
-
-void Renderer::CreateDepthResources()
-{
-	VkFormat depthFormat = VK_FORMAT_D32_SFLOAT;//chek if its is suported
-
-	CreateImage(depthFormat, c_MSAACount, VK_IMAGE_TILING_OPTIMAL, VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, m_DepthImage, m_DepthImageMemory);
-
-	m_DepthImageView = CreateImageView(m_Device, m_DepthImage, depthFormat, VK_IMAGE_ASPECT_DEPTH_BIT);
 }
 
 void Renderer::CreateVertexBuffer()
@@ -1050,84 +1054,6 @@ void Renderer::CreateSyncObjects()
 	}
 }
 
-void Renderer::CreateImage(VkFormat format, VkSampleCountFlagBits samples, VkImageTiling tiling, VkImageUsageFlags usage, VkMemoryPropertyFlags properties, VkImage& image, VkDeviceMemory& imageMemory)
-{
-	VkImageCreateInfo imageInfo =
-	{
-		.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
-		.pNext = nullptr,
-		.flags = 0,
-		.imageType = VK_IMAGE_TYPE_2D,
-		.format = format,
-		.extent = {m_ImageExtend.width, m_ImageExtend.height, 1}, //image depended
-		.mipLevels = 1,
-		.arrayLayers = 1,
-		.samples = samples,
-		.tiling = tiling,
-		.usage = usage,
-		.sharingMode = VK_SHARING_MODE_EXCLUSIVE,
-		.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED
-	};
-
-	vkCreateImage(m_Device, &imageInfo, nullptr, &image);
-
-	VkPhysicalDeviceMemoryProperties memProperties;
-	vkGetPhysicalDeviceMemoryProperties(m_PhysicalDevice.PhysicalDeviceHandle, &memProperties);
-
-	VkMemoryRequirements memRequirements;
-	vkGetImageMemoryRequirements(m_Device, image, &memRequirements);
-
-	uint32_t bestMemType = 0;
-	for (uint32_t i = 0; i < memProperties.memoryTypeCount; i++)
-	{
-		if ((memRequirements.memoryTypeBits & (1 << i)) && (memProperties.memoryTypes[i].propertyFlags & properties) == properties)
-		{
-			bestMemType = i;
-			break;
-		}
-	}
-
-	VkMemoryAllocateInfo allocInfo =
-	{
-		.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
-		.pNext = nullptr,
-		.allocationSize = memRequirements.size,
-		.memoryTypeIndex = bestMemType
-	};
-	vkAllocateMemory(m_Device, &allocInfo, nullptr, &imageMemory);
-	vkBindImageMemory(m_Device, image, imageMemory, 0);
-}
-
-VkImageView Renderer::CreateImageView(VkDevice Device, VkImage Image, VkFormat Format, VkImageAspectFlags AspectFlags)
-{
-	VkImageViewCreateInfo ViewInfo =
-	{
-		.sType = VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO,
-		.pNext = NULL,
-		.flags = 0,
-		.image = Image,
-		.viewType = VK_IMAGE_VIEW_TYPE_2D,
-		.format = Format,
-		.components = {
-			.r = VK_COMPONENT_SWIZZLE_IDENTITY,
-			.g = VK_COMPONENT_SWIZZLE_IDENTITY,
-			.b = VK_COMPONENT_SWIZZLE_IDENTITY,
-			.a = VK_COMPONENT_SWIZZLE_IDENTITY
-		},
-		.subresourceRange = {
-			.aspectMask = AspectFlags,
-			.baseMipLevel = 0,
-			.levelCount = 1,
-			.baseArrayLayer = 0,
-			.layerCount = 1
-		}
-	};
-
-	VkImageView ImageView;
-	vkCreateImageView(Device, &ViewInfo, NULL, &ImageView);
-	return ImageView;
-}
-
 void Renderer::CreateBuffer(VkDeviceSize size, VkBufferUsageFlags usage, VkMemoryPropertyFlags properties, VkBuffer& buffer, VkDeviceMemory& bufferMemor)
 {
 	//init buffer handle
@@ -1231,14 +1157,6 @@ void Renderer::CopyBuffer(VkBuffer srcBuffer, VkBuffer dstBuffer, VkDeviceSize s
 
 void Renderer::ClearSwapChain()
 {
-	vkDestroyImageView(m_Device, m_DepthImageView, nullptr);
-	vkDestroyImage(m_Device, m_DepthImage, nullptr);
-	vkFreeMemory(m_Device, m_DepthImageMemory, nullptr);
-
-	vkDestroyImageView(m_Device, m_MSAAImageView, nullptr);
-	vkDestroyImage(m_Device, m_MSAAImage, nullptr);
-	vkFreeMemory(m_Device, m_MSAAImageMemory, nullptr);
-
 	for (auto& framebuffer : m_Framebuffers)
 	{
 		vkDestroyFramebuffer(m_Device, framebuffer, nullptr);
@@ -1312,7 +1230,7 @@ void Renderer::recordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t image
 
 	//Draw
 	//vkCmdDraw(commandBuffer, vertices.size(), 1, 0, 0);
-	vkCmdDrawIndexed(commandBuffer, indices.size(), 1, 0, 0, 0);
+	vkCmdDrawIndexed(commandBuffer, indices.size(), 3, 0, 0, 0);
 
 	vkCmdEndRenderPass(commandBuffer);
 	vkEndCommandBuffer(commandBuffer);
@@ -1394,8 +1312,10 @@ void Renderer::RecreateSwapChain()
 	ClearSwapChain();
 
 	CreateSwapChain();
-	CreateColorResources();
-	CreateDepthResources();
+
+	m_MSAAImage.Resize(m_ImageExtend);
+	m_DepthImage.Resize(m_ImageExtend);
+
 	CreateFramebuffers();
 }
 

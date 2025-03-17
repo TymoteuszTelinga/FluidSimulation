@@ -5,6 +5,8 @@
 #include "Core/Base.h"
 #include "Core/Window.h"
 
+#include "Image.h"
+
 class Renderer
 {
 	struct PhysicalDevice
@@ -43,8 +45,6 @@ private:
 	void CreateGraphicsPipeline();
 	void CreateFramebuffers();
 	void CreateComandPool();
-	void CreateColorResources();
-	void CreateDepthResources();
 	void CreateVertexBuffer();
 	void CreateIndexBuffer();
 	void CreateUniformBuffers();
@@ -52,9 +52,6 @@ private:
 	void CreateDescriptorSets();
 	void CreateCommandBuffer();
 	void CreateSyncObjects();
-
-	void CreateImage(VkFormat format, VkSampleCountFlagBits samples, VkImageTiling tiling, VkImageUsageFlags usage, VkMemoryPropertyFlags properties, VkImage& image, VkDeviceMemory& imageMemory);
-	VkImageView CreateImageView(VkDevice Device, VkImage Image, VkFormat Format, VkImageAspectFlags AspectFlags);
 
 	void CreateBuffer(VkDeviceSize size, VkBufferUsageFlags usage, VkMemoryPropertyFlags properties, VkBuffer& buffer, VkDeviceMemory& bufferMemor);
 
@@ -66,6 +63,15 @@ private:
 
 private:
 	const uint32_t MAX_IN_FLIGHT_FRAMES = 2;
+	//chek for suport of MSAA
+	const VkSampleCountFlagBits c_MSAACount = VK_SAMPLE_COUNT_4_BIT;
+	//chek if phisical device suport specific format
+	const VkSurfaceFormatKHR c_SwapChainFormat =
+	{
+		.format = VK_FORMAT_B8G8R8A8_SRGB,
+		.colorSpace = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR,
+	};
+
 
 	VkInstance m_Instance = VK_NULL_HANDLE;
 	VkDebugUtilsMessengerEXT m_DebugMessenger = VK_NULL_HANDLE;
@@ -76,22 +82,14 @@ private:
 	VkQueue m_PresentQueue = VK_NULL_HANDLE;
 
 	VkExtent2D m_ImageExtend;
-	VkSurfaceFormatKHR m_SwapChainFormat;
 
 	VkSwapchainKHR m_Swapchain = VK_NULL_HANDLE;
 	std::vector<VkImage> m_Images;
 	std::vector<VkImageView> m_ImageViews;
 	std::vector<VkFramebuffer> m_Framebuffers;
 
-	VkImage m_DepthImage = VK_NULL_HANDLE;
-	VkDeviceMemory m_DepthImageMemory = VK_NULL_HANDLE;
-	VkImageView m_DepthImageView = VK_NULL_HANDLE;
-
-	const VkSampleCountFlagBits c_MSAACount = VK_SAMPLE_COUNT_4_BIT;
-	VkImage m_MSAAImage = VK_NULL_HANDLE;
-	VkDeviceMemory m_MSAAImageMemory = VK_NULL_HANDLE;
-	VkImageView m_MSAAImageView = VK_NULL_HANDLE;
-
+	Image m_DepthImage;
+	Image m_MSAAImage;
 	
 	VkRenderPass m_RenderPass = VK_NULL_HANDLE;
 

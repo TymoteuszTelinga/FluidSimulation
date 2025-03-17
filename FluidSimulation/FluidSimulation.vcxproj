@@ -146,6 +146,7 @@
     <ClCompile Include="src\Core\Application.cpp" />
     <ClCompile Include="src\Core\Window.cpp" />
     <ClCompile Include="src\main.cpp" />
+    <ClCompile Include="src\Renderer\Image.cpp" />
     <ClCompile Include="src\Renderer\Renderer.cpp" />
     <ClCompile Include="src\Simulation.cpp" />
   </ItemGroup>
@@ -156,6 +157,8 @@
     <ClInclude Include="src\Core\Window.h" />
     <ClInclude Include="src\Events\Event.h" />
     <ClInclude Include="src\Events\WindowEvent.h" />
+    <ClInclude Include="src\Renderer\Device.h" />
+    <ClInclude Include="src\Renderer\Image.h" />
     <ClInclude Include="src\Renderer\Renderer.h" />
     <ClInclude Include="src\Simulation.h" />
   </ItemGroup>
