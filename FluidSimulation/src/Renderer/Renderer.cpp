@@ -8,6 +8,8 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 
+#include "Utilities.h"
+
 struct Vertex
 {
 	glm::vec3 position;
@@ -102,20 +104,15 @@ Renderer::~Renderer()
 		vkDestroyFence(m_Device, fence, nullptr);
 	}
 
-	for (size_t i = 0; i < MAX_IN_FLIGHT_FRAMES; i++)
-	{
-		vkDestroyBuffer(m_Device, m_UniformBuffers[i], nullptr);
-		vkFreeMemory(m_Device, m_UniformBuffersMemory[i], nullptr);
-	}
-
 	vkDestroyDescriptorPool(m_Device, m_DescriptorPool, nullptr);
 	vkDestroyDescriptorSetLayout(m_Device, m_DescriptorSetLayout, nullptr);
 
-	vkDestroyBuffer(m_Device, m_VertexBuffer, nullptr);
-	vkFreeMemory(m_Device, m_VertexBufferMemory, nullptr);
-
-	vkDestroyBuffer(m_Device, m_IndexBuffer, nullptr);
-	vkFreeMemory(m_Device, m_IndexBufferMemory, nullptr);
+	m_VertexBuffer.Free();
+	m_IndexBuffer.Free();
+	for (auto& buffer : m_UniformBuffers)
+	{
+		buffer.Free();
+	}
 
 	vkDestroyCommandPool(m_Device, m_CommandPool, nullptr);
 
@@ -140,7 +137,6 @@ Renderer::~Renderer()
 	vkDestroyDebugUtilsMessenger = (PFN_vkDestroyDebugUtilsMessengerEXT)vkGetInstanceProcAddr(m_Instance, "vkDestroyDebugUtilsMessengerEXT");
 	vkDestroyDebugUtilsMessenger(m_Instance, m_DebugMessenger, nullptr);
 	
-
 	vkDestroyInstance(m_Instance, nullptr);
 }
 
@@ -154,7 +150,6 @@ void Renderer::Init(const std::string& applicationName, const Scope<Window>& win
 	CreateLogicalDevice();
 
 	CreateSwapChain();
-		//CreateImageView();
 	CreateRenderPass();
 	CreateDescriptorSetLayout();
 	CreateGraphicsPipeline();
@@ -242,50 +237,6 @@ void Renderer::CreateInstance(const std::string& applicationName)
 	}
 }
 
-static const std::string GetDebugSeverityStr(VkDebugUtilsMessageSeverityFlagBitsEXT Severity)
-{
-	switch (Severity) {
-	case VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT:
-		return "Verbose";
-
-	case VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT:
-		return "Info";
-
-	case VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT:
-		return "Warning";
-
-	case VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT:
-		return "Error";
-
-	default:
-		return "UnKnown";
-	}
-
-	return "NO SUCH SEVERITY!";
-}
-
-static const std::string GetDebugType(VkDebugUtilsMessageTypeFlagsEXT Type)
-{
-	switch (Type) {
-	case VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT:
-		return "General";
-
-	case VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT:
-		return "Validation";
-
-	case VK_DEBUG_UTILS_MESSAGE_TYPE_PERFORMANCE_BIT_EXT:
-		return "Performance";
-
-	case VK_DEBUG_UTILS_MESSAGE_TYPE_DEVICE_ADDRESS_BINDING_BIT_EXT:
-		return "Device address binding";
-
-	default:
-		return "UnKnown";
-	}
-
-	return "NO SUCH TYPE!";
-}
-
 static VKAPI_ATTR VkBool32 VKAPI_CALL DebugCallback(
 	VkDebugUtilsMessageSeverityFlagBitsEXT           messageSeverity,
 	VkDebugUtilsMessageTypeFlagsEXT                  messageTypes,
@@ -293,8 +244,8 @@ static VKAPI_ATTR VkBool32 VKAPI_CALL DebugCallback(
 	void* pUserData)
 {
 	printf("Debug Callback:\n");
-	printf("   Severity: %s\n", GetDebugSeverityStr(messageSeverity).c_str());
-	printf("   Type: %s\n", GetDebugType(messageTypes).c_str());
+	printf("   Severity: %s\n", Utilites::GetDebugSeverityStr(messageSeverity).c_str());
+	printf("   Type: %s\n", Utilites::GetDebugType(messageTypes).c_str());
 	printf("   Message: %s\n", pCallbackData->pMessage);
 
 	return VK_FALSE;
@@ -442,7 +393,7 @@ void Renderer::CreateSwapChain()
 	}
 
 	VkPresentModeKHR PresentMode = VK_PRESENT_MODE_FIFO_KHR;//alway suported (vsync on) in future chenge to Imidient mode (vsync off)
-	PresentMode = VK_PRESENT_MODE_IMMEDIATE_KHR; //vsync off
+	//PresentMode = VK_PRESENT_MODE_IMMEDIATE_KHR; //vsync off
 
 	uint32_t queueFamily = m_PhysicalDevice.GetFamilyQueue(VK_QUEUE_GRAPHICS_BIT);
 	m_ImageExtend = SurfaceCapabilities.currentExtent;
@@ -606,48 +557,11 @@ void Renderer::CreateDescriptorSetLayout()
 	vkCreateDescriptorSetLayout(m_Device, &layoutInfo, nullptr, &m_DescriptorSetLayout);
 }
 
-static std::vector<char> readFile(const std::string& filename) 
-{
-	std::ifstream file(filename, std::ios::binary);
-	if (!file)
-	{
-		LOG(ERROR, "Open file Error (%s)", filename.c_str());
-	}
-
-	file.seekg(0, std::ios::end);
-	uint32_t fileSize = (uint32_t)file.tellg();
-
-	std::vector<char> buffer(fileSize);
-
-	file.seekg(0, std::ios::beg);
-	file.read(buffer.data(), fileSize);
-	file.close();
-
-	return buffer;
-}
-
-static VkShaderModule CreateShaderModule(VkDevice device, const std::vector<char>& code) 
-{
-	VkShaderModuleCreateInfo createInfo = 
-	{
-		.sType = VK_STRUCTURE_TYPE_SHADER_MODULE_CREATE_INFO,
-		.codeSize = code.size(),
-		.pCode = reinterpret_cast<const uint32_t*>(code.data())
-	};
-
-	VkShaderModule shaderModule;
-	vkCreateShaderModule(device, &createInfo, nullptr, &shaderModule);
-	return shaderModule;
-}
-
 void Renderer::CreateGraphicsPipeline()
 {
 	//Sahder creation
-	std::vector<char> vertShaderCode = readFile("src\\Shaders\\vert.spv");//shader error
-	std::vector<char> fragShaderCode = readFile("src\\Shaders\\frag.spv");
-
-	VkShaderModule vertShaderModule = CreateShaderModule(m_Device, vertShaderCode);
-	VkShaderModule fragShaderModule = CreateShaderModule(m_Device, fragShaderCode);
+	VkShaderModule vertShaderModule = Utilites::CreateShaderModule(m_Device, "src\\Shaders\\vert.spv");
+	VkShaderModule fragShaderModule = Utilites::CreateShaderModule(m_Device, "src\\Shaders\\frag.spv");
 
 	VkPipelineShaderStageCreateInfo vertShaderStageInfo =
 	{
@@ -891,43 +805,56 @@ void Renderer::CreateVertexBuffer()
 {
 	VkDeviceSize bufferSize = sizeof(Vertex) * vertices.size();
 
-	VkBuffer stagingBuffer;
-	VkDeviceMemory stagingBufferMemory;
-	CreateBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, stagingBuffer, stagingBufferMemory);
+	BufferSpecification vertexSpec =
+	{
+		.device = {m_Device, m_PhysicalDevice.PhysicalDeviceHandle},
+		.size = bufferSize,
+		.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
+		.properties = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT
+	};
+	m_VertexBuffer.Init(vertexSpec, nullptr);
 
-	void* bufferData = nullptr;
-	vkMapMemory(m_Device, stagingBufferMemory, 0, bufferSize, 0, &bufferData);
-	memcpy(bufferData, vertices.data(), bufferSize);
-	vkUnmapMemory(m_Device, stagingBufferMemory);
+	BufferSpecification stagingSpec =
+	{
+		.device = {m_Device, m_PhysicalDevice.PhysicalDeviceHandle},
+		.size = bufferSize,
+		.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+		.properties = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
+	};
+	Buffer stagingBuffer;
+	stagingBuffer.Init(stagingSpec, vertices.data());
 
-	CreateBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, m_VertexBuffer, m_VertexBufferMemory);
+	CopyBuffer(stagingBuffer.GetHandle(), m_VertexBuffer.GetHandle(), bufferSize);
 
-	CopyBuffer(stagingBuffer, m_VertexBuffer, bufferSize);
-	
-	vkDestroyBuffer(m_Device, stagingBuffer, nullptr);
-	vkFreeMemory(m_Device, stagingBufferMemory, nullptr);
+	stagingBuffer.Free();
 }
 
 void Renderer::CreateIndexBuffer()
 {
 	VkDeviceSize bufferSize = sizeof(uint16_t) * indices.size();
 
-	VkBuffer stagingBuffer;
-	VkDeviceMemory stagingBufferMemory;
-	CreateBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_SRC_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, stagingBuffer, stagingBufferMemory);
+	BufferSpecification indexSpec =
+	{
+		.device = {m_Device, m_PhysicalDevice.PhysicalDeviceHandle},
+		.size = bufferSize,
+		.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
+		.properties = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT
+	};
+	m_IndexBuffer.Init(indexSpec, nullptr);
 
-	void* bufferData = nullptr;
-	vkMapMemory(m_Device, stagingBufferMemory, 0, bufferSize, 0, &bufferData);
-	memcpy(bufferData, indices.data(), bufferSize);
-	vkUnmapMemory(m_Device, stagingBufferMemory);
+	BufferSpecification stagingSpec =
+	{
+		.device = {m_Device, m_PhysicalDevice.PhysicalDeviceHandle},
+		.size = bufferSize,
+		.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+		.properties = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
+	};
+	Buffer stagingBuffer;
+	stagingBuffer.Init(stagingSpec, indices.data());
 
-	CreateBuffer(bufferSize, VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT, m_IndexBuffer, m_IndexBufferMemory);
+	CopyBuffer(stagingBuffer.GetHandle(), m_IndexBuffer.GetHandle(), bufferSize);
 
-	CopyBuffer(stagingBuffer, m_IndexBuffer, bufferSize);
-
-	vkDestroyBuffer(m_Device, stagingBuffer, nullptr);
-	vkFreeMemory(m_Device, stagingBufferMemory, nullptr);
-
+	stagingBuffer.Free();
 }
 
 void Renderer::CreateUniformBuffers()
@@ -935,13 +862,18 @@ void Renderer::CreateUniformBuffers()
 	VkDeviceSize bufferSize = sizeof(UniformBufferObject);
 
 	m_UniformBuffers.resize(MAX_IN_FLIGHT_FRAMES);
-	m_UniformBuffersMemory.resize(MAX_IN_FLIGHT_FRAMES);
-	m_UniformBuffersMapped.resize(MAX_IN_FLIGHT_FRAMES);
 
-	for (size_t i = 0; i < MAX_IN_FLIGHT_FRAMES; i++)
+	BufferSpecification uniformSpec =
 	{
-		CreateBuffer(bufferSize, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT, VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT, m_UniformBuffers[i], m_UniformBuffersMemory[i]);
-		vkMapMemory(m_Device, m_UniformBuffersMemory[i], 0, bufferSize, 0, &m_UniformBuffersMapped[i]);
+		.device = {m_Device, m_PhysicalDevice.PhysicalDeviceHandle},
+		.size = bufferSize,
+		.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+		.properties = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+		.AllowWrite = true
+	};
+	for (auto& buffer : m_UniformBuffers) 
+	{
+		buffer.Init(uniformSpec, nullptr);
 	}
 }
 
@@ -986,7 +918,7 @@ void Renderer::CreateDescriptorSets()
 	{
 		VkDescriptorBufferInfo bufferInfo =
 		{
-			.buffer = m_UniformBuffers[i],
+			.buffer = m_UniformBuffers[i].GetHandle(),
 			.offset = 0,
 			.range = sizeof(UniformBufferObject)
 		};
@@ -1052,50 +984,6 @@ void Renderer::CreateSyncObjects()
 		vkCreateSemaphore(m_Device, &semaphoreInfo, nullptr, &m_RenderFinishedSemaphores[i]);
 		vkCreateFence(m_Device, &fenceInfo, nullptr, &m_InFlightFences[i]);
 	}
-}
-
-void Renderer::CreateBuffer(VkDeviceSize size, VkBufferUsageFlags usage, VkMemoryPropertyFlags properties, VkBuffer& buffer, VkDeviceMemory& bufferMemor)
-{
-	//init buffer handle
-	VkBufferCreateInfo bufferInfo =
-	{
-		.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO,
-		.pNext = nullptr,
-		.flags = 0,
-		.size = size,
-		.usage = usage,
-		.sharingMode = VK_SHARING_MODE_EXCLUSIVE,
-	};
-
-	vkCreateBuffer(m_Device, &bufferInfo, nullptr, &buffer);
-
-	//get and find best memory type
-	VkMemoryRequirements memRequirements;
-	vkGetBufferMemoryRequirements(m_Device, buffer, &memRequirements);
-
-	VkPhysicalDeviceMemoryProperties memProperties;
-	vkGetPhysicalDeviceMemoryProperties(m_PhysicalDevice.PhysicalDeviceHandle, &memProperties);
-
-	uint32_t bestMemType = 0;
-	for (uint32_t i = 0; i < memProperties.memoryTypeCount; i++)
-	{
-		if ((memRequirements.memoryTypeBits & (1 << i)) && (memProperties.memoryTypes[i].propertyFlags & properties) == properties)
-		{
-			bestMemType = i;
-			break;
-		}
-	}
-
-	//AlocateMemeory
-	VkMemoryAllocateInfo allocateInfo =
-	{
-		.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
-		.pNext = nullptr,
-		.allocationSize = memRequirements.size,
-		.memoryTypeIndex = bestMemType
-	};
-	vkAllocateMemory(m_Device, &allocateInfo, nullptr, &bufferMemor);
-	vkBindBufferMemory(m_Device, buffer, bufferMemor, 0);
 }
 
 void Renderer::CopyBuffer(VkBuffer srcBuffer, VkBuffer dstBuffer, VkDeviceSize size)
@@ -1202,9 +1090,10 @@ void Renderer::recordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t image
 	vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, m_GraphicsPipeline);
 
 	VkDeviceSize offset = 0;
-	vkCmdBindVertexBuffers(commandBuffer, 0, 1, &m_VertexBuffer, &offset);
+	VkBuffer vertexBuffers[1] = {m_VertexBuffer.GetHandle()};
+	vkCmdBindVertexBuffers(commandBuffer, 0, 1, vertexBuffers, &offset);
 
-	vkCmdBindIndexBuffer(commandBuffer, m_IndexBuffer, 0, VK_INDEX_TYPE_UINT16);
+	vkCmdBindIndexBuffer(commandBuffer, m_IndexBuffer.GetHandle(), 0, VK_INDEX_TYPE_UINT16);
 
 	//set up in pipeline as dynamic
 	VkViewport viewport = 
@@ -1302,7 +1191,7 @@ void Renderer::updateUniformBuffer(float deltaTime, uint32_t currentImage)
 	ubo.proj = glm::perspective(glm::radians(45.f), aspectRacio, 0.1f, 10.f);
 	ubo.proj[1][1] *= -1.f;
 
-	memcpy(m_UniformBuffersMapped[currentImage], &ubo, sizeof(ubo));
+	m_UniformBuffers[currentImage].Write(&ubo, sizeof(ubo));
 }
 
 void Renderer::RecreateSwapChain()

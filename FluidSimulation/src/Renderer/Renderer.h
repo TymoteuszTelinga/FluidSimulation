@@ -6,6 +6,7 @@
 #include "Core/Window.h"
 
 #include "Image.h"
+#include "Buffer.h"
 
 class Renderer
 {
@@ -53,13 +54,11 @@ private:
 	void CreateCommandBuffer();
 	void CreateSyncObjects();
 
-	void CreateBuffer(VkDeviceSize size, VkBufferUsageFlags usage, VkMemoryPropertyFlags properties, VkBuffer& buffer, VkDeviceMemory& bufferMemor);
+	//void CreateBuffer(VkDeviceSize size, VkBufferUsageFlags usage, VkMemoryPropertyFlags properties, VkBuffer& buffer, VkDeviceMemory& bufferMemor);
 
 	void CopyBuffer(VkBuffer srcBuffer, VkBuffer dstBuffer, VkDeviceSize size);
 
-
 	void ClearSwapChain();
-
 
 private:
 	const uint32_t MAX_IN_FLIGHT_FRAMES = 2;
@@ -68,7 +67,7 @@ private:
 	//chek if phisical device suport specific format
 	const VkSurfaceFormatKHR c_SwapChainFormat =
 	{
-		.format = VK_FORMAT_B8G8R8A8_SRGB,
+		.format = VK_FORMAT_R8G8B8A8_SRGB,
 		.colorSpace = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR,
 	};
 
@@ -94,14 +93,9 @@ private:
 	VkRenderPass m_RenderPass = VK_NULL_HANDLE;
 
 	//buffers
-	VkBuffer m_VertexBuffer = VK_NULL_HANDLE;
-	VkDeviceMemory m_VertexBufferMemory = VK_NULL_HANDLE;
-	VkBuffer m_IndexBuffer = VK_NULL_HANDLE;
-	VkDeviceMemory m_IndexBufferMemory = VK_NULL_HANDLE;
-
-	std::vector<VkBuffer> m_UniformBuffers;
-	std::vector<VkDeviceMemory> m_UniformBuffersMemory;
-	std::vector<void*> m_UniformBuffersMapped;
+	Buffer m_VertexBuffer;
+	Buffer m_IndexBuffer;
+	std::vector<Buffer> m_UniformBuffers;
 
 	//uniforms info
 	VkDescriptorPool m_DescriptorPool = VK_NULL_HANDLE;

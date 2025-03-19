@@ -85,30 +85,16 @@ void Image::Invalidate()
 
 	vkCreateImage(m_Spec.device, &imageInfo, nullptr, &m_Image);
 
-	//---heper function---
-	VkPhysicalDeviceMemoryProperties memProperties;
-	vkGetPhysicalDeviceMemoryProperties(m_Spec.device.physicalDevice, &memProperties);
-
 	VkMemoryRequirements memRequirements;
 	vkGetImageMemoryRequirements(m_Spec.device, m_Image, &memRequirements);
-
-	uint32_t bestMemType = 0;
-	for (uint32_t i = 0; i < memProperties.memoryTypeCount; i++)
-	{
-		if ((memRequirements.memoryTypeBits & (1 << i)) && (memProperties.memoryTypes[i].propertyFlags & VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT) == VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT)
-		{
-			bestMemType = i;
-			break;
-		}
-	}
-	//--------------------
+	uint32_t memType = m_Spec.device.FindMemoryType(memRequirements.memoryTypeBits, VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
 
 	VkMemoryAllocateInfo allocInfo =
 	{
 		.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO,
 		.pNext = nullptr,
 		.allocationSize = memRequirements.size,
-		.memoryTypeIndex = bestMemType
+		.memoryTypeIndex = memType
 	};
 	vkAllocateMemory(m_Spec.device, &allocInfo, nullptr, &m_ImageMemory);
 	vkBindImageMemory(m_Spec.device, m_Image, m_ImageMemory, 0);

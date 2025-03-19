@@ -8,4 +8,5 @@ struct Device
 	VkPhysicalDevice physicalDevice;
 
 	operator VkDevice() const { return device; };
+	uint32_t FindMemoryType(uint32_t typeFilter, VkMemoryPropertyFlags properties) const;
 };
