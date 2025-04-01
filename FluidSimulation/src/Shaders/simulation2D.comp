@@ -1,0 +1,180 @@
+#version 460 core
+#extension GL_ARB_shading_language_include : require
+
+#include "Kernels.glsl"
+
+struct Particle
+{
+	vec2 position;
+	float density;
+	vec2 velocity;
+    vec2 predictedPosition;
+};
+
+layout(push_constant) uniform Push
+{
+	float deltaTime;
+} push;
+
+layout(std140, binding = 0) uniform SimulationSpec
+{
+    float Height;
+    float Width;
+    float CollisionDamping;
+    float Radius;
+    float TargetDensity;
+    float PressureMultiplier;
+    int ParticlesCount;
+} u_Spec;
+
+layout(std140, binding = 1) buffer ParticleSSBO
+{
+	Particle particles[];
+};
+
+//--------------HelperFunctions--------------
+
+float CalculateDensity(vec2 samplePoint)
+{
+	float density = 0.f;
+	const float mass = 1.f; //ubo
+	
+	for (uint i = 0; i < u_Spec.ParticlesCount; i++)
+	{
+		float dst = length(particles[i].predictedPosition - samplePoint);
+		float influance = SmoothingKernel(u_Spec.Radius, dst);
+		density += mass * influance;
+	}
+
+	return density;
+}
+
+float PressureFromDensity(float density)
+{
+	return (density - u_Spec.TargetDensity) * u_Spec.PressureMultiplier;
+}
+
+void ResolveCollisions(inout Particle p)
+{
+	const float halfHeight = u_Spec.Height;
+	const float halfWidth = u_Spec.Width;
+	const float CollisionDamping = u_Spec.CollisionDamping;
+
+	if ( abs(p.position.x) >= halfWidth)
+	{
+		p.position.x = halfWidth * sign(p.position.x);
+		p.velocity.x *= -1 * CollisionDamping;
+	}
+
+	if ( abs(p.position.y) >= halfHeight)
+	{
+		p.position.y = halfHeight * sign(p.position.y);
+		p.velocity.y *= -1 * CollisionDamping;
+	}
+}
+
+//--------------EntryPoints--------------
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+void ExternalForce()
+{
+	uint index = gl_GlobalInvocationID.x;
+	Particle p = particles[index];
+
+	//Apply gravity
+	p.velocity += vec2(0.f, 1.f) * 1.f * push.deltaTime;
+    //Predict position
+    p.predictedPosition = p.position + (p.velocity * 1.f / 120.f);
+	
+	particles[index] = p;
+}
+
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+void DensityStep()
+{
+    uint index = gl_GlobalInvocationID.x;
+	Particle p = particles[index];
+    //calculate density
+    p.density = CalculateDensity(p.predictedPosition);
+
+    particles[index] = p;
+}
+
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+void PressureStep()
+{
+    uint index = gl_GlobalInvocationID.x;
+	Particle p = particles[index];
+
+    const vec2 samplePoint = p.predictedPosition;
+    const float particleDensity = p.density;
+    const float particlePressure = PressureFromDensity(particleDensity);
+
+    vec2 pressureForce = vec2(0.f);
+
+    for (uint i = 0; i < u_Spec.ParticlesCount; i++)
+	{
+		if (i == index)
+		{
+			continue;
+		}
+        vec2 offset = particles[i].predictedPosition - samplePoint;
+		float dst = length(offset);
+		vec2 dir = dst == 0.f ? vec2(0.f, 1.f) : offset / dst;
+
+		float slope = SmoothingKernelDerivative(u_Spec.Radius, dst);
+
+        float neighbourDensity = particles[i].density;
+        float pressure = PressureFromDensity(neighbourDensity);
+        float sharedPressure = (particlePressure + pressure) / 2.f;
+        pressureForce +=  dir * slope * sharedPressure / neighbourDensity;
+	}
+
+    vec2 acceleration = pressureForce / particleDensity;
+    p.velocity += acceleration * push.deltaTime;
+
+    particles[index] = p;
+}
+
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+void ViscosityStep()
+{
+    uint index = gl_GlobalInvocationID.x;
+	Particle p = particles[index];
+
+    const vec2 samplePoint = p.predictedPosition;
+    const vec2 velocity = p.velocity;
+    const float viscosityStrength = 0.06f;//ubo
+
+    vec2 viscosityForce = vec2(0.f);
+
+    for (uint i = 0; i < u_Spec.ParticlesCount; i++)
+	{
+		if (i == index)
+		{
+			continue;
+		}
+        vec2 offset = particles[i].predictedPosition - samplePoint;
+		float dst = length(offset);
+
+		float slope = SmoothingKernel6(u_Spec.Radius, dst);
+
+        vec2 neighbourVelocity = particles[i].velocity;
+        viscosityForce += (neighbourVelocity - velocity) * slope;
+	}
+    p.velocity += viscosityForce * viscosityStrength * push.deltaTime;
+
+    particles[index] = p;
+}
+
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+void UpdateStep()
+{
+    uint index = gl_GlobalInvocationID.x;
+	Particle p = particles[index];
+
+    p.position += p.velocity * push.deltaTime;
+
+	ResolveCollisions(p);
+
+    particles[index] = p;
+}

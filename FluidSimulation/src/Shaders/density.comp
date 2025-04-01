@@ -1,0 +1,67 @@
+#version 460 core
+#extension GL_ARB_shading_language_include : require
+
+#include "Kernels.glsl"
+
+struct Particle
+{
+	vec2 position;
+	float density;
+	vec2 velocity;
+    vec2 predictedPosition;
+};
+
+layout(push_constant) uniform Push
+{
+	float deltaTime;
+} push;
+
+layout(std140, binding = 0) uniform SimulationSpec
+{
+    float Height;
+    float Width;
+    float CollisionDampingf;
+    float Radius;
+    float TargetDensity;
+    float PressureMultiplier;
+    int ParticlesCount;
+} u_Spec;
+
+layout(std140, binding = 1) buffer ParticleSSBO
+{
+	Particle particles[];
+};
+
+
+
+float CalculateDensity(vec2 samplePoint)
+{
+	float density = 0.f;
+
+	const float mass = 1.f; //ubo
+	
+	for (uint i = 0; i < u_Spec.ParticlesCount; i++)
+	{
+		float dst = length(samplePoint - particles[i].position);
+		float influance = SmoothingKernel(u_Spec.Radius, dst);
+		density += mass * influance;
+	}
+
+	return density;
+}
+
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+void main()
+{
+	uint index = gl_GlobalInvocationID.x;
+	Particle p = particles[index];
+
+    p.predictedPosition = p.position + (p.velocity * 1.f / 120.f);
+	//Apply gravity
+	//p.velocity += vec3(0.f, 1.f, 0.f) * 9.81f * push.deltaTime / 10.f;
+
+	//calculate density
+	p.density = CalculateDensity(p.predictedPosition);
+	
+	particles[index] = p;
+}

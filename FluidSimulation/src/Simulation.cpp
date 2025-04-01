@@ -21,8 +21,7 @@ void Simulation::OnUpdate(float deltaTime)
 	static float totalTime = 0;
 	if (!bPoused)
 	{
-		totalTime += deltaTime;
-		m_Renderer->RenderFrame(totalTime);
+		m_Renderer->RenderFrame(deltaTime);
 	}
 }
 

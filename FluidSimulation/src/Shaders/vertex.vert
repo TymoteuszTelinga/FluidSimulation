@@ -9,18 +9,16 @@ layout(set = 0, binding = 0) uniform UniformBufferObject
 
 layout(location = 0) in vec3 Position;
 layout(location = 1) in vec3 Color;
+layout(location = 2) in vec2 UV;
+layout(location = 3) in vec3 Center; //per instance
+layout(location = 4) in vec3 velocity; //per instance
 
 layout(location = 0) out vec3 fragColor;
-
-vec3 offsets[3] = 
-{
-	vec3(0.f, 0.f,  0.0f),
-	vec3(0.f, 0.f,  0.5f),
-	vec3(0.f, 0.f, -0.5f)
-};
+layout(location = 1) out vec2 UVcord;
 
 void main()
 {
-	gl_Position = ubo.proj * ubo.view * ubo.model * vec4(Position + offsets[gl_InstanceIndex], 1.0f);
-    fragColor = Color;
+	gl_Position = ubo.proj * ubo.view * ubo.model * vec4(Position + Center, 1.0f);
+    fragColor = velocity;
+	UVcord = UV;
 }

@@ -42,8 +42,8 @@ void Application::Run()
 			float FrameTime = TotalTime / counter * 1000;
 
 			LOG(INFO, "FPS: %.1f, Time: %.3f ms", FPS, FrameTime)
-			//printf("FPS: %.1f, ", FPS);
-			//printf("Time: %.3f\n", FrameTime);
+			/*printf("FPS: %.1f, ", FPS);
+			printf("Time: %.3f\n", FrameTime);*/
 
 			TotalTime = 0.0f;
 			counter = 0;

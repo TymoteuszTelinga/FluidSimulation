@@ -10,10 +10,11 @@
 
 #include "Utilities.h"
 
-struct Vertex
+static struct Vertex
 {
 	glm::vec3 position;
 	glm::vec3 color;
+	glm::vec2 uv;
 
 	static VkVertexInputBindingDescription GetBindingDescription()
 	{
@@ -57,35 +58,109 @@ struct Vertex
 			descriptions.push_back(VertexAttribute);
 		}
 
+		//UV attrib
+		{
+			VkVertexInputAttributeDescription VertexAttribute =
+			{
+				.location = 2,
+				.binding = 0,
+				.format = VK_FORMAT_R32G32_SFLOAT,
+				.offset = offsetof(Vertex, uv)
+			};
+
+			descriptions.push_back(VertexAttribute);
+		}
+
 		return descriptions;
 	}
 };
 
+static struct Instance
+{
+	alignas(8) glm::vec2 position;
+	alignas(4)	float density;
+	alignas(8) glm::vec2 velocity;
+	alignas(8) glm::vec2 predictedPosition;
+
+	static VkVertexInputBindingDescription GetBindingDescription()
+	{
+		VkVertexInputBindingDescription description =
+		{
+			.binding = 1,
+			.stride = sizeof(Instance),
+			.inputRate = VK_VERTEX_INPUT_RATE_INSTANCE
+
+		};
+		return description;
+	}
+
+	static std::vector<VkVertexInputAttributeDescription> GetAtributeDescription()
+	{
+		std::vector<VkVertexInputAttributeDescription> descriptions;
+
+		//position attrib
+		{
+			VkVertexInputAttributeDescription InstanceAttribute =
+			{
+				.location = 3,
+				.binding = 1,
+				.format = VK_FORMAT_R32G32_SFLOAT,
+				.offset = offsetof(Instance, position)
+			};
+
+			descriptions.push_back(InstanceAttribute);
+		}
+
+		{
+			VkVertexInputAttributeDescription InstanceAttribute =
+			{
+				.location = 4,
+				.binding = 1,
+				.format = VK_FORMAT_R32G32_SFLOAT,
+				.offset = offsetof(Instance, velocity)
+			};
+
+			descriptions.push_back(InstanceAttribute);
+		}
+
+
+		return descriptions;
+	}
+};
+
+static const float PS = 0.055f;
 static const std::vector<Vertex> vertices = 
 {
-	{{-0.5f, -0.5f, 0.0f}, {1.0f, 0.0f, 0.0f}},
-	{{ 0.5f, -0.5f, 0.0f}, {0.0f, 1.0f, 0.0f}},
-	{{ 0.5f,  0.5f, 0.0f}, {0.0f, 0.0f, 1.0f}},
-	{{-0.5f,  0.5f, 0.0f}, {1.0f, 1.0f, 1.0f}},
-
-	{{-0.5f, -0.5f, -0.5f}, {1.0f, 1.0f, 0.0f}},
-	{{ 0.5f, -0.5f, -0.5f}, {1.0f, 0.0f, 0.0f}},
-	{{ 0.5f,  0.5f, -0.5f}, {0.0f, 1.0f, 0.0f}},
-	{{-0.5f,  0.5f, -0.5f}, {0.0f, 1.0f, 1.0f}}
+	{{-PS, -PS, 0.5f}, {1.0f, 0.0f, 0.0f}, {0.f, 1.f}},
+	{{ PS, -PS, 0.5f}, {0.0f, 1.0f, 0.0f}, {1.f, 1.f}},
+	{{ PS,  PS, 0.5f}, {0.0f, 0.0f, 1.0f}, {1.f, 0.f}},
+	{{-PS,  PS, 0.5f}, {1.0f, 1.0f, 1.0f}, {0.f, 0.f}},
 };
 
-const std::vector<uint16_t> indices = 
+static const std::vector<uint16_t> indices = 
 {
 	0, 1, 2, 2, 3, 0
-	//4, 5, 6, 6, 7, 4
 };
 
-struct UniformBufferObject
+static std::vector<Instance> instances;
+
+static struct UniformBufferObject
 {
-	alignas(16) glm::mat4 model;
-	alignas(16) glm::mat4 view;
-	alignas(16) glm::mat4 proj;
-};
+	alignas(16) glm::mat4 model = glm::mat4(1.f);
+	alignas(16) glm::mat4 view  = glm::mat4(1.f);
+	alignas(16) glm::mat4 proj  = glm::mat4(1.f);
+} s_RenderingUBO;
+
+static struct SimulationUBO
+{
+	float simulationHeight = 18.f / 2.f;//in use
+	float simulationWidth = 32.f / 2.f;//in use
+	float collisionDamping = 0.8f;//in use
+	float kernelRadius = 0.3;//i  use
+	float targetDensity = 65.75f;//in use
+	float pressureMultiplier = 100.5f;//in use
+	uint32_t particlesCount = 256 * 40;//in use
+} s_SimUBO;
 
 Renderer::~Renderer()
 {
@@ -106,18 +181,26 @@ Renderer::~Renderer()
 
 	vkDestroyDescriptorPool(m_Device, m_DescriptorPool, nullptr);
 	vkDestroyDescriptorSetLayout(m_Device, m_DescriptorSetLayout, nullptr);
+	vkDestroyDescriptorSetLayout(m_Device, m_ComputeDescriptorSetLayout, nullptr);
 
 	m_VertexBuffer.Free();
 	m_IndexBuffer.Free();
+	m_InstanceBuffer.Free();
 	for (auto& buffer : m_UniformBuffers)
 	{
 		buffer.Free();
 	}
+	m_SimulationSpecBuffer.Free();
 
 	vkDestroyCommandPool(m_Device, m_CommandPool, nullptr);
 
-	vkDestroyPipeline(m_Device, m_GraphicsPipeline, nullptr);
+	m_GravityStep.Free();
+	m_DensityStep.Free();
+	m_PressureStep.Free();
+	m_ViscosityStep.Free();
+	m_UpdateStep.Free();
 
+	vkDestroyPipeline(m_Device, m_GraphicsPipeline, nullptr);
 	vkDestroyPipelineLayout(m_Device, m_PipelineLayout, nullptr);
 
 	vkDestroyRenderPass(m_Device, m_RenderPass, nullptr);
@@ -142,6 +225,38 @@ Renderer::~Renderer()
 
 void Renderer::Init(const std::string& applicationName, const Scope<Window>& window)
 {
+	instances.clear();
+	float x = -7.0f;
+	float y = -4.0f;
+	s_RenderingUBO.proj = glm::orthoLH_ZO(-s_SimUBO.simulationWidth - 1.f, s_SimUBO.simulationWidth + 1.f, -s_SimUBO.simulationHeight - 1.f, s_SimUBO.simulationHeight + 1.f, 0.0f, 1.f);
+	for (size_t i = 0; i < s_SimUBO.particlesCount; i++)
+	{
+		/*float x = (float)rand() / RAND_MAX;
+		float y = (float)rand() / RAND_MAX;
+		x = x * 2.f - 1.f;
+		y = y * 2.f - 1.f;
+		x *= s_SimUBO.simulationWidth;
+		y *= s_SimUBO.simulationHeight;*/
+		//y = 0.f;
+		x += 0.1f;
+		if (x >= 7.0f)
+		{
+			x = -7.0f;
+			x += 0.1f;
+			y += 0.1f;
+		}
+
+
+
+		Instance particle;
+		particle.position = glm::vec2(x, y);
+		particle.predictedPosition = particle.position;
+		particle.density = 0.1f;
+		particle.velocity = glm::vec2(0.f,0.f);
+		instances.push_back(particle);
+	}
+
+
 	CreateInstance(applicationName);
 	CreateDebugCallback();
 
@@ -153,6 +268,7 @@ void Renderer::Init(const std::string& applicationName, const Scope<Window>& win
 	CreateRenderPass();
 	CreateDescriptorSetLayout();
 	CreateGraphicsPipeline();
+	CreateComputePipeline();
 
 	CreateComandPool();
 
@@ -184,13 +300,18 @@ void Renderer::Init(const std::string& applicationName, const Scope<Window>& win
 
 	CreateVertexBuffer();
 	CreateIndexBuffer();
+	CreateInstanceBuffer();
 	CreateUniformBuffers();
 
 	CreateDescriptorPool();
+
 	CreateDescriptorSets();
+	CreateComputeDescriptorSets();
 
 	CreateCommandBuffer();
 	CreateSyncObjects();
+
+	LOG(DEBUG, "Active Particles: %u", s_SimUBO.particlesCount);
 }
 
 void Renderer::CreateInstance(const std::string& applicationName)
@@ -376,6 +497,7 @@ void Renderer::CreateLogicalDevice()
 
 	vkCreateDevice(m_PhysicalDevice.PhysicalDeviceHandle, &deviceCreateInfo, nullptr, &m_Device);
 
+	vkGetDeviceQueue(m_Device, queueCreateInfo.queueFamilyIndex, 0, &m_ComputeQueue);
 	vkGetDeviceQueue(m_Device, queueCreateInfo.queueFamilyIndex, 0, &m_Queue);
 	vkGetDeviceQueue(m_Device, presetQueue, 0, &m_PresentQueue);
 
@@ -536,6 +658,7 @@ void Renderer::CreateRenderPass()
 
 void Renderer::CreateDescriptorSetLayout()
 {
+	//Graphics
 	VkDescriptorSetLayoutBinding uboLayoutBinding =
 	{
 		.binding = 0,
@@ -555,6 +678,36 @@ void Renderer::CreateDescriptorSetLayout()
 	};
 
 	vkCreateDescriptorSetLayout(m_Device, &layoutInfo, nullptr, &m_DescriptorSetLayout);
+	//Compute
+	VkDescriptorSetLayoutBinding simUBOBinding =
+	{
+		.binding = 0,
+		.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+		.descriptorCount = 1,
+		.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
+		.pImmutableSamplers = nullptr
+	};
+
+	VkDescriptorSetLayoutBinding ssboLayoutBinding =
+	{
+		.binding = 1,
+		.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+		.descriptorCount = 1,
+		.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
+		.pImmutableSamplers = nullptr
+	};
+
+	VkDescriptorSetLayoutBinding bindings[] = { simUBOBinding, ssboLayoutBinding };
+	VkDescriptorSetLayoutCreateInfo ssboLayoutInfo =
+	{
+		.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
+		.pNext = nullptr,
+		.flags = 0,
+		.bindingCount = 2,
+		.pBindings = bindings
+	};
+
+	vkCreateDescriptorSetLayout(m_Device, &ssboLayoutInfo, nullptr, &m_ComputeDescriptorSetLayout);
 }
 
 void Renderer::CreateGraphicsPipeline()
@@ -586,16 +739,18 @@ void Renderer::CreateGraphicsPipeline()
 	VkPipelineShaderStageCreateInfo shaderStages[] = { vertShaderStageInfo, fragShaderStageInfo };
 
 	//PipeLineDefinicion
-	auto VertexBinding = Vertex::GetBindingDescription();
+	VkVertexInputBindingDescription VertexBinding[] = {Vertex::GetBindingDescription(), Instance::GetBindingDescription()};
 	auto VertexAttributes = Vertex::GetAtributeDescription();
+	auto InstanceAttributes = Instance::GetAtributeDescription();
+	VertexAttributes.insert(VertexAttributes.end(), InstanceAttributes.begin(), InstanceAttributes.end());
 
 	VkPipelineVertexInputStateCreateInfo vertexInputInfo =
 	{
 		.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
 		.pNext = nullptr,
 		.flags = 0,
-		.vertexBindingDescriptionCount = 1,
-		.pVertexBindingDescriptions = &VertexBinding,
+		.vertexBindingDescriptionCount = 2,
+		.pVertexBindingDescriptions = VertexBinding,
 		.vertexAttributeDescriptionCount = (uint32_t)VertexAttributes.size(),
 		.pVertexAttributeDescriptions = VertexAttributes.data(),
 	};
@@ -658,7 +813,7 @@ void Renderer::CreateGraphicsPipeline()
 		.depthClampEnable = VK_FALSE,
 		.rasterizerDiscardEnable = VK_FALSE,
 		.polygonMode = VK_POLYGON_MODE_FILL,
-		.cullMode = VK_CULL_MODE_BACK_BIT,
+		.cullMode = VK_CULL_MODE_NONE,//VK_CULL_MODE_BACK_BIT
 		.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE,
 		.depthBiasEnable = VK_FALSE,
 		.depthBiasConstantFactor = 0.f,
@@ -683,12 +838,12 @@ void Renderer::CreateGraphicsPipeline()
 	//per frame buffer attachment
 	VkPipelineColorBlendAttachmentState colorBlendAttachmentState =
 	{
-		.blendEnable = VK_FALSE,
-		.srcColorBlendFactor = VK_BLEND_FACTOR_ONE,
-		.dstColorBlendFactor = VK_BLEND_FACTOR_ZERO,
+		.blendEnable = VK_TRUE,
+		.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA, //VK_BLEND_FACTOR_ONE,
+		.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA, //VK_BLEND_FACTOR_ZERO,
 		.colorBlendOp = VK_BLEND_OP_ADD,
-		.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE,
-		.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO,
+		.srcAlphaBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA,
+		.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,
 		.alphaBlendOp = VK_BLEND_OP_ADD,
 		.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT
 	};
@@ -712,7 +867,7 @@ void Renderer::CreateGraphicsPipeline()
 		.flags = 0,
 		.depthTestEnable = VK_TRUE,
 		.depthWriteEnable = VK_TRUE,
-		.depthCompareOp = VK_COMPARE_OP_LESS,
+		.depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL,
 		.depthBoundsTestEnable = VK_FALSE,
 		.stencilTestEnable = VK_FALSE,
 		.front = {},
@@ -762,6 +917,59 @@ void Renderer::CreateGraphicsPipeline()
 
 	vkDestroyShaderModule(m_Device, vertShaderModule, nullptr);
 	vkDestroyShaderModule(m_Device, fragShaderModule, nullptr);
+}
+
+void Renderer::CreateComputePipeline()
+{
+	ComputePipelineSpecification gravitySpec =
+	{
+		.device = {m_Device, m_PhysicalDevice.PhysicalDeviceHandle},
+		.shaderPath = "src\\Shaders\\simulation2D.spv",
+		.entryPoint = "ExternalForce",
+		.descriptorLayout = m_ComputeDescriptorSetLayout,
+		.constantsSize = sizeof(float)
+	};
+	m_GravityStep.Init(gravitySpec);
+	
+	ComputePipelineSpecification densitySpec =
+	{
+		.device = {m_Device, m_PhysicalDevice.PhysicalDeviceHandle},
+		.shaderPath = "src\\Shaders\\simulation2D.spv",
+		.entryPoint = "DensityStep",
+		.descriptorLayout = m_ComputeDescriptorSetLayout,
+		.constantsSize = sizeof(float)
+	};
+	m_DensityStep.Init(densitySpec);
+
+	ComputePipelineSpecification pressureSpec =
+	{
+		.device = {m_Device, m_PhysicalDevice.PhysicalDeviceHandle},
+		.shaderPath = "src\\Shaders\\simulation2D.spv",
+		.entryPoint = "PressureStep",
+		.descriptorLayout = m_ComputeDescriptorSetLayout,
+		.constantsSize = sizeof(float)
+	};
+	m_PressureStep.Init(pressureSpec);
+
+	ComputePipelineSpecification viscositySpec =
+	{
+		.device = {m_Device, m_PhysicalDevice.PhysicalDeviceHandle},
+		.shaderPath = "src\\Shaders\\simulation2D.spv",
+		.entryPoint = "ViscosityStep",
+		.descriptorLayout = m_ComputeDescriptorSetLayout,
+		.constantsSize = sizeof(float)
+	};
+	m_ViscosityStep.Init(viscositySpec);
+
+	ComputePipelineSpecification updateSpec =
+	{
+		.device = {m_Device, m_PhysicalDevice.PhysicalDeviceHandle},
+		.shaderPath = "src\\Shaders\\simulation2D.spv",
+		.entryPoint = "UpdateStep",
+		.descriptorLayout = m_ComputeDescriptorSetLayout,
+		.constantsSize = sizeof(float)
+	};
+	m_UpdateStep.Init(updateSpec);
 }
 
 void Renderer::CreateFramebuffers()
@@ -857,32 +1065,77 @@ void Renderer::CreateIndexBuffer()
 	stagingBuffer.Free();
 }
 
+void Renderer::CreateInstanceBuffer()
+{
+	VkDeviceSize bufferSize = sizeof(Instance) * instances.size();
+
+	BufferSpecification InstanceSpec =
+	{
+		.device = {m_Device, m_PhysicalDevice.PhysicalDeviceHandle},
+		.size = bufferSize,
+		.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+		.properties = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT
+	};
+	m_InstanceBuffer.Init(InstanceSpec, nullptr);
+
+	BufferSpecification stagingSpec =
+	{
+		.device = {m_Device, m_PhysicalDevice.PhysicalDeviceHandle},
+		.size = bufferSize,
+		.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+		.properties = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
+	};
+	Buffer stagingBuffer;
+	stagingBuffer.Init(stagingSpec, instances.data());
+
+	CopyBuffer(stagingBuffer.GetHandle(), m_InstanceBuffer.GetHandle(), bufferSize);
+
+	stagingBuffer.Free();
+}
+
 void Renderer::CreateUniformBuffers()
 {
-	VkDeviceSize bufferSize = sizeof(UniformBufferObject);
-
 	m_UniformBuffers.resize(MAX_IN_FLIGHT_FRAMES);
 
 	BufferSpecification uniformSpec =
 	{
 		.device = {m_Device, m_PhysicalDevice.PhysicalDeviceHandle},
-		.size = bufferSize,
+		.size = sizeof(UniformBufferObject),
 		.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
 		.properties = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
 		.AllowWrite = true
 	};
+
 	for (auto& buffer : m_UniformBuffers) 
 	{
-		buffer.Init(uniformSpec, nullptr);
+		buffer.Init(uniformSpec, &s_RenderingUBO);
 	}
+
+
+	BufferSpecification simulatinUBO =
+	{
+		.device = {m_Device, m_PhysicalDevice.PhysicalDeviceHandle},
+		.size = sizeof(SimulationUBO),
+		.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+		.properties = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+		.AllowWrite = true
+	};
+	m_SimulationSpecBuffer.Init(simulatinUBO, &s_SimUBO);
 }
 
+//create pool for uniform buffers and SSBO
 void Renderer::CreateDescriptorPool()
 {
-	VkDescriptorPoolSize poolSize =
+	VkDescriptorPoolSize poolSizes[2] =
 	{
-		.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-		.descriptorCount = MAX_IN_FLIGHT_FRAMES
+		{
+			.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+			.descriptorCount = MAX_IN_FLIGHT_FRAMES
+		},
+		{
+			.type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+			.descriptorCount = MAX_IN_FLIGHT_FRAMES
+		}
 	};
 
 	VkDescriptorPoolCreateInfo poolInfo =
@@ -890,9 +1143,9 @@ void Renderer::CreateDescriptorPool()
 		.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
 		.pNext = nullptr,
 		.flags = 0,
-		.maxSets = MAX_IN_FLIGHT_FRAMES,
-		.poolSizeCount = 1,
-		.pPoolSizes = &poolSize,
+		.maxSets = MAX_IN_FLIGHT_FRAMES * 2,
+		.poolSizeCount = 2,
+		.pPoolSizes = poolSizes,
 	};
 
 	vkCreateDescriptorPool(m_Device, &poolInfo, nullptr, &m_DescriptorPool);
@@ -940,6 +1193,72 @@ void Renderer::CreateDescriptorSets()
 		vkUpdateDescriptorSets(m_Device, 1, &descriptorWrite, 0, nullptr);
 	}
 
+}
+
+void Renderer::CreateComputeDescriptorSets()
+{
+	std::vector<VkDescriptorSetLayout> layouts(MAX_IN_FLIGHT_FRAMES, m_ComputeDescriptorSetLayout);
+
+	VkDescriptorSetAllocateInfo allocInfo =
+	{
+		.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
+		.pNext = nullptr,
+		.descriptorPool = m_DescriptorPool,
+		.descriptorSetCount = MAX_IN_FLIGHT_FRAMES,
+		.pSetLayouts = layouts.data()
+	};
+	m_ComputeDescriptorSets.resize(MAX_IN_FLIGHT_FRAMES);
+	vkAllocateDescriptorSets(m_Device, &allocInfo, m_ComputeDescriptorSets.data());
+
+	for (size_t i = 0; i < MAX_IN_FLIGHT_FRAMES; i++)
+	{
+		//sim uniform
+		VkDescriptorBufferInfo uniformInfo =
+		{
+			.buffer = m_SimulationSpecBuffer.GetHandle(),
+			.offset = 0,
+			.range = sizeof(SimulationUBO)
+		};
+
+		VkWriteDescriptorSet uniformWrite =
+		{
+			.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+			.pNext = nullptr,
+			.dstSet = m_ComputeDescriptorSets[i],
+			.dstBinding = 0,
+			.dstArrayElement = 0,
+			.descriptorCount = 1,
+			.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
+			.pImageInfo = nullptr,
+			.pBufferInfo = &uniformInfo,
+			.pTexelBufferView = nullptr
+		};
+
+		//sim particles
+		VkDescriptorBufferInfo bufferInfo =
+		{
+			.buffer = m_InstanceBuffer.GetHandle(),
+			.offset = 0,
+			.range = sizeof(Instance) * instances.size()
+		};
+
+		VkWriteDescriptorSet bufferWrite =
+		{
+			.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+			.pNext = nullptr,
+			.dstSet = m_ComputeDescriptorSets[i],
+			.dstBinding = 1,
+			.dstArrayElement = 0,
+			.descriptorCount = 1,
+			.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+			.pImageInfo = nullptr,
+			.pBufferInfo = &bufferInfo,
+			.pTexelBufferView = nullptr
+		};
+
+		VkWriteDescriptorSet descriptorWrite[] = { uniformWrite, bufferWrite };
+		vkUpdateDescriptorSets(m_Device, 2, descriptorWrite, 0, nullptr);
+	}
 }
 
 void Renderer::CreateCommandBuffer()
@@ -1072,7 +1391,7 @@ void Renderer::recordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t image
 	vkBeginCommandBuffer(commandBuffer, &beginBufferInfo);
 
 	VkRect2D renderArea = { {0,0}, m_ImageExtend };
-	VkClearValue clearValues[2] = { {0.f, 0.f, 0.f, 1.f}, {1.f, 0.f}};
+	VkClearValue clearValues[2] = { {0.f, 0.f, 0.005f, 0.f}, {1.f, 0.f}};
 
 	VkRenderPassBeginInfo beginRenderPassInfo =
 	{
@@ -1089,9 +1408,9 @@ void Renderer::recordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t image
 
 	vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, m_GraphicsPipeline);
 
-	VkDeviceSize offset = 0;
-	VkBuffer vertexBuffers[1] = {m_VertexBuffer.GetHandle()};
-	vkCmdBindVertexBuffers(commandBuffer, 0, 1, vertexBuffers, &offset);
+	VkDeviceSize offset[2] = { 0,0 };
+	VkBuffer vertexBuffers[2] = {m_VertexBuffer.GetHandle(), m_InstanceBuffer.GetHandle()};
+	vkCmdBindVertexBuffers(commandBuffer, 0, 2, vertexBuffers, offset);
 
 	vkCmdBindIndexBuffer(commandBuffer, m_IndexBuffer.GetHandle(), 0, VK_INDEX_TYPE_UINT16);
 
@@ -1119,7 +1438,7 @@ void Renderer::recordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t image
 
 	//Draw
 	//vkCmdDraw(commandBuffer, vertices.size(), 1, 0, 0);
-	vkCmdDrawIndexed(commandBuffer, indices.size(), 3, 0, 0, 0);
+	vkCmdDrawIndexed(commandBuffer, indices.size(), s_SimUBO.particlesCount, 0, 0, 0);
 
 	vkCmdEndRenderPass(commandBuffer);
 	vkEndCommandBuffer(commandBuffer);
@@ -1127,6 +1446,15 @@ void Renderer::recordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t image
 
 void Renderer::RenderFrame(float deltaTime)
 {
+	//compute faze
+	RunSimulationStep(m_GravityStep, deltaTime);
+	RunSimulationStep(m_DensityStep, deltaTime);
+	RunSimulationStep(m_PressureStep, deltaTime);
+	RunSimulationStep(m_ViscosityStep, deltaTime);
+	RunSimulationStep(m_UpdateStep, deltaTime);
+	
+
+	//drawing
 	vkWaitForFences(m_Device, 1, &m_InFlightFences[curentFrame], VK_TRUE, UINT64_MAX);
 	
 	uint32_t imageIndex;
@@ -1141,7 +1469,7 @@ void Renderer::RenderFrame(float deltaTime)
 	vkResetCommandBuffer(m_CommandBuffers[curentFrame], 0);
 	recordCommandBuffer(m_CommandBuffers[curentFrame], imageIndex);
 
-	updateUniformBuffer(deltaTime, curentFrame);
+	//updateUniformBuffer(deltaTime, curentFrame);
 
 	VkPipelineStageFlags waitStages[] = { VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT };
 
@@ -1184,14 +1512,39 @@ void Renderer::RenderFrame(float deltaTime)
 void Renderer::updateUniformBuffer(float deltaTime, uint32_t currentImage)
 {
 	UniformBufferObject ubo;
-	//ubo.model = glm::mat4(1.f);
-	ubo.model = glm::rotate(glm::mat4(1.f), glm::radians(90.f) * deltaTime, glm::vec3(0.f, 0.f, 1.f));
-	ubo.view = glm::lookAt(glm::vec3(2.0f, 2.0f, 2.0f), glm::vec3(0.f), glm::vec3(0.f, 0.f, 1.f));
-	float aspectRacio = (float)m_ImageExtend.width / (float)m_ImageExtend.height;
-	ubo.proj = glm::perspective(glm::radians(45.f), aspectRacio, 0.1f, 10.f);
-	ubo.proj[1][1] *= -1.f;
+	ubo.model = glm::scale(glm::mat4(1.f), glm::vec3(1.0f));
+	//ubo.model = glm::rotate(glm::mat4(1.f), glm::radians(90.f) * deltaTime, glm::vec3(0.f, 0.f, 1.f));
+	ubo.view = glm::mat4(1.f);
+	//ubo.view = glm::lookAt(glm::vec3(2.0f, 2.0f, 2.0f), glm::vec3(0.f), glm::vec3(0.f, 0.f, 1.f));
+	//float aspectRacio = (float)m_ImageExtend.width / (float)m_ImageExtend.height;
+	//ubo.proj = glm::perspective(glm::radians(45.f), aspectRacio, 0.1f, 10.f);
+
+	ubo.proj = glm::orthoLH_ZO(-s_SimUBO.simulationWidth -1.f, s_SimUBO.simulationWidth +1.f, -s_SimUBO.simulationHeight -1.f, s_SimUBO.simulationHeight +1.f, 0.0f, 1.f);
 
 	m_UniformBuffers[currentImage].Write(&ubo, sizeof(ubo));
+}
+
+void Renderer::RunSimulationStep(ComputePipeline& siulationStep, float deltaTime)
+{
+	vkWaitForFences(m_Device, 1, &m_InFlightFences[curentFrame], VK_TRUE, UINT64_MAX);
+	vkResetFences(m_Device, 1, &m_InFlightFences[curentFrame]);
+
+	vkResetCommandBuffer(m_CommandBuffers[curentFrame], 0);
+	siulationStep.Dispatch(m_CommandBuffers[curentFrame], s_SimUBO.particlesCount / 256, &m_ComputeDescriptorSets[0], &deltaTime);
+
+	VkSubmitInfo computeSubmitInfo =
+	{
+		.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
+		.pNext = nullptr,
+		.waitSemaphoreCount = 0,
+		.pWaitSemaphores = nullptr,
+		.pWaitDstStageMask = nullptr,
+		.commandBufferCount = 1,
+		.pCommandBuffers = &m_CommandBuffers[curentFrame],
+		.signalSemaphoreCount = 0,
+		.pSignalSemaphores = nullptr
+	};
+	vkQueueSubmit(m_ComputeQueue, 1, &computeSubmitInfo, m_InFlightFences[curentFrame]);
 }
 
 void Renderer::RecreateSwapChain()

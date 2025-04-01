@@ -7,6 +7,7 @@
 
 #include "Image.h"
 #include "Buffer.h"
+#include "ComputePipeline.h"
 
 class Renderer
 {
@@ -27,8 +28,19 @@ public:
 
 	void recordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t imageIndex);
 	//temporary solution
+	//void UpdateStep(VkCommandBuffer commandBuffer, float deltaTime);
+	//void Update2Step(VkCommandBuffer commandBuffer, float deltaTime);
 	void RenderFrame(float deltaTime);
 	void updateUniformBuffer(float deltaTime, uint32_t currentImage);
+
+	//Fluid simlualtion steps
+	//1. Apply external forcess (gravity, mouse) + predict positions
+	//1.5 spartila grid for optimalization
+	//2. Calculate density + Calculate near density
+	//3. Calculate preshure forses
+	//4. viscosity corections
+	//5. update positions + colisions resolve
+	void RunSimulationStep(ComputePipeline& siulationStep, float deltaTime);
 
 	//Resize function
 	void RecreateSwapChain();
@@ -43,14 +55,23 @@ private:
 	void CreateSwapChain();
 	void CreateRenderPass();
 	void CreateDescriptorSetLayout();
+
 	void CreateGraphicsPipeline();
+	void CreateComputePipeline();
+
 	void CreateFramebuffers();
 	void CreateComandPool();
+
 	void CreateVertexBuffer();
 	void CreateIndexBuffer();
+	void CreateInstanceBuffer();
 	void CreateUniformBuffers();
+
 	void CreateDescriptorPool();
+
 	void CreateDescriptorSets();
+	void CreateComputeDescriptorSets();
+
 	void CreateCommandBuffer();
 	void CreateSyncObjects();
 
@@ -61,7 +82,7 @@ private:
 	void ClearSwapChain();
 
 private:
-	const uint32_t MAX_IN_FLIGHT_FRAMES = 2;
+	const uint32_t MAX_IN_FLIGHT_FRAMES = 1;
 	//chek for suport of MSAA
 	const VkSampleCountFlagBits c_MSAACount = VK_SAMPLE_COUNT_4_BIT;
 	//chek if phisical device suport specific format
@@ -77,6 +98,7 @@ private:
 	VkSurfaceKHR m_Surface = VK_NULL_HANDLE;
 	PhysicalDevice m_PhysicalDevice;
 	VkDevice m_Device = VK_NULL_HANDLE;
+	VkQueue m_ComputeQueue = VK_NULL_HANDLE;
 	VkQueue m_Queue = VK_NULL_HANDLE;
 	VkQueue m_PresentQueue = VK_NULL_HANDLE;
 
@@ -95,15 +117,28 @@ private:
 	//buffers
 	Buffer m_VertexBuffer;
 	Buffer m_IndexBuffer;
+	Buffer m_InstanceBuffer;
 	std::vector<Buffer> m_UniformBuffers;
+	Buffer m_SimulationSpecBuffer;
 
-	//uniforms info
+	//Graphics
 	VkDescriptorPool m_DescriptorPool = VK_NULL_HANDLE;
+
 	VkDescriptorSetLayout m_DescriptorSetLayout = VK_NULL_HANDLE;
 	std::vector<VkDescriptorSet> m_DescriptorSets;
 
 	VkPipelineLayout m_PipelineLayout = VK_NULL_HANDLE;
 	VkPipeline m_GraphicsPipeline = VK_NULL_HANDLE;
+
+	//Compute
+	VkDescriptorSetLayout m_ComputeDescriptorSetLayout = VK_NULL_HANDLE;
+	std::vector<VkDescriptorSet> m_ComputeDescriptorSets;
+
+	ComputePipeline m_GravityStep;
+	ComputePipeline m_DensityStep;
+	ComputePipeline m_PressureStep;
+	ComputePipeline m_ViscosityStep;
+	ComputePipeline m_UpdateStep;
 	
 	VkCommandPool m_CommandPool = VK_NULL_HANDLE;
 	std::vector<VkCommandBuffer> m_CommandBuffers;// = VK_NULL_HANDLE;

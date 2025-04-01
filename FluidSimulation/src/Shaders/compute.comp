@@ -1,0 +1,159 @@
+#version 460 core
+
+const float PI = 3.1415f;
+
+struct Particle
+{
+	vec3 position;
+	float density;
+	vec3 velocity;
+};
+
+layout(push_constant) uniform Push
+{
+	float deltaTime;
+} push;
+
+layout(std140, binding = 1) buffer ParticleSSBO
+{
+	Particle particles[];
+};
+
+void ResolveCollisions(inout Particle p)
+{
+	const float halfHeight = 360.f - 5.f; //ubo
+	const float halfWidth = 640.f - 5.f; //ubo
+	const float CollisionDamping = 0.8f; //ubo
+
+	if ( abs(p.position.x) >= halfWidth)
+	{
+		p.position.x = halfWidth * sign(p.position.x);
+		p.velocity.x *= -1 * CollisionDamping;
+	}
+
+	if ( abs(p.position.y) >= halfHeight)
+	{
+		p.position.y = halfHeight * sign(p.position.y);
+		p.velocity.y *= -1 * CollisionDamping;
+	}
+}
+
+float SmoothingKernel(float radius, float dst)
+{
+	if ( dst >= radius)
+		return 0.f;
+
+	//float volume = PI * pow(radius, 8) / 4.f;
+	//float value = max(0.f, radius * radius - dst * dst);
+	//return value * value * value / volume;
+	float volume = PI * pow(radius, 4) / 6.f;
+	return (radius - dst) * (radius - dst) / volume;
+}
+
+float SmoothingKernelDerivative(float radius, float dst)
+{
+	if ( dst >= radius)
+		return 0.f;
+
+	//float f = radius * radius - dst * dst;
+	//float scale = -24 / (PI * pow(radius, 8));
+	//return scale * dst * f * f;
+	float scale = 12 / (PI * pow(radius, 4));
+	return (dst - radius) * scale;
+}
+
+float ConvertDensityToPresure(float density)
+{
+	const float targetDensity = 1.f; //ubo
+	const float pressureMultiplier = 1.f; //ubo
+
+	float densityError = density - targetDensity;
+	float pressure = densityError * pressureMultiplier;
+	return pressure;
+}
+
+float CalculateDensity(vec3 samplePoint)
+{
+	float density = 0.f;
+
+	const float mass = 1.f; //ubo
+	const uint PCount = 256 * 4; //ubo
+	const float smoothinRadius = 50.f; //ubo
+	
+	for (uint i = 0; i < PCount; i++)
+	{
+		float dst = length(samplePoint - particles[i].position);
+		float influance = SmoothingKernel(smoothinRadius, dst);
+		density += mass * influance;
+	}
+
+	return density;
+}
+
+vec3 CalculateGradient(vec3 samplePoint)
+{
+	vec3 gradient = vec3(0.f);
+
+	const float mass = 1.f; //ubo
+	const uint PCount = 256 * 4; //ubo
+	const float smoothinRadius = 50.f; //ubo
+	
+	for (uint i = 0; i < PCount; i++)
+	{
+		if (i == gl_GlobalInvocationID.x)
+		{
+			continue;
+		}
+		float dst = length(samplePoint - particles[i].position);
+		vec3 dir = particles[i].position - samplePoint;
+		float slope = SmoothingKernelDerivative(smoothinRadius, dst);
+		float density = CalculateDensity(particles[i].position);//cash in
+		gradient += -ConvertDensityToPresure(density) * dir * mass * slope / density;
+	}
+
+	return gradient;
+}
+
+/*
+float CalculateProperty(inout Particle p)
+{
+	float property = 0.f;
+	const float mass = 1.f; //ubo
+	const uint PCount = 256 * 4; //ubo
+	const float smoothinRadius = 50.f; //ubo
+	
+	for (uint i = 0; i < PCount; i++)
+	{
+		float dst = length(p.position - particles[i].position);
+		float influance = SmoothingKernel(smoothinRadius, dst);
+		float density = CalculateDensity(particles[i].position);
+		property += particles[i].property * mass * influance / density;
+	}
+
+	return property;
+}
+*/
+
+layout(local_size_x = 256, local_size_y = 1, local_size_z = 1) in;
+void main()
+{
+	uint index = gl_GlobalInvocationID.x;
+	Particle p = particles[index];
+
+	//aply grawity
+	p.velocity += vec3(0.f, 1.f, 0.f) * 9.81f * push.deltaTime;
+
+	//calculate density
+	//sync threds
+
+	//calculate preshure
+	vec3 pressureGradient = CalculateGradient(p.position);
+	vec3 acceleration = pressureGradient / CalculateDensity(p.position);
+	p.velocity = acceleration * push.deltaTime;
+
+	p.position += p.velocity * push.deltaTime;
+
+	ResolveCollisions(p);
+	
+	particles[index] = p;
+}
