@@ -23,6 +23,7 @@ public:
 	void Free();
 
 	VkBuffer GetHandle() const { return m_Buffer; };
+	VkDeviceSize GetSize() const { return m_Spec.size; };
 
 private:
 	BufferSpecification m_Spec;

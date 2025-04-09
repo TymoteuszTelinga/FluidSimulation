@@ -41,6 +41,7 @@ public:
 	//4. viscosity corections
 	//5. update positions + colisions resolve
 	void RunSimulationStep(ComputePipeline& siulationStep, float deltaTime);
+	void RunSortStep(ComputePipeline& sortStep, uint32_t size, uint32_t algorithm);
 
 	//Resize function
 	void RecreateSwapChain();
@@ -71,6 +72,7 @@ private:
 
 	void CreateDescriptorSets();
 	void CreateComputeDescriptorSets();
+	void CreateSortDescriptorSets();
 
 	void CreateCommandBuffer();
 	void CreateSyncObjects();
@@ -118,6 +120,8 @@ private:
 	Buffer m_VertexBuffer;
 	Buffer m_IndexBuffer;
 	Buffer m_InstanceBuffer;
+	Buffer m_SpatialBuffer;
+	Buffer m_LookUpBuffer;
 	std::vector<Buffer> m_UniformBuffers;
 	Buffer m_SimulationSpecBuffer;
 
@@ -139,6 +143,14 @@ private:
 	ComputePipeline m_PressureStep;
 	ComputePipeline m_ViscosityStep;
 	ComputePipeline m_UpdateStep;
+
+	//sorting
+	VkDescriptorSetLayout m_SortDescriptorSetLayout = VK_NULL_HANDLE;
+	std::vector<VkDescriptorSet> m_SortDescriptorSets;
+
+	ComputePipeline m_SortStep;
+
+
 	
 	VkCommandPool m_CommandPool = VK_NULL_HANDLE;
 	std::vector<VkCommandBuffer> m_CommandBuffers;// = VK_NULL_HANDLE;

@@ -1,0 +1,155 @@
+#version 460 core
+
+layout(push_constant) uniform Push
+{
+	uint algorithm;
+    uint size;
+} push;
+
+struct Entry
+{
+    uint key;
+    uint ParticleID;
+};
+
+layout(std430, binding = 0) buffer IndexesSSBO
+{
+	Entry indexes[];
+};
+
+layout(std430, binding = 1) buffer LookUpSSBO
+{
+	uint LookUp[];
+};
+
+//number of elements 256
+const uint N = 256;
+uint localIndex;
+uint globalIndex;
+shared Entry values[N];
+
+//--------------HelperFunctions--------------
+void globalCompareAndSwap(uvec2 idx)
+{
+    if(indexes[idx.x].key > indexes[idx.y].key)
+    {
+        Entry tmp = indexes[idx.x];
+        indexes[idx.x] = indexes[idx.y];
+        indexes[idx.y] = tmp;
+    }
+}
+
+void localCompareAndSwap(uvec2 idx)
+{
+    if(values[idx.x].key > values[idx.y].key)
+    {
+        Entry tmp = values[idx.x];
+        values[idx.x] = values[idx.y];
+        values[idx.y] = tmp;
+    }
+}
+
+void globalFlip(uint h) 
+{
+	uint q = ((2 * globalIndex) / h) * h;
+    uint half_h = h >> 1;
+    uvec2 indices = q + uvec2( globalIndex % half_h , h - (globalIndex % half_h) - 1);
+
+	globalCompareAndSwap(indices);
+}
+
+void globalDisperse(uint h)
+{
+    uint q = ((2 * globalIndex) / h) * h;
+    uint half_h = h >> 1;
+    uvec2 indices = q + uvec2( globalIndex % half_h, (globalIndex % half_h) + half_h );
+
+    globalCompareAndSwap(indices);
+}
+
+void localFlip(uint h)
+{
+    barrier();
+
+    uint q = ((2 * localIndex) / h) * h;
+    uint half_h = h >> 1;
+    uvec2 indices = q + uvec2( localIndex % half_h , h - (localIndex % half_h) - 1);
+
+    localCompareAndSwap(indices);
+}
+
+void localDisperse(uint h)
+{
+	for ( ; h > 1 ; h>>=1 ) 
+    {
+		barrier();
+
+        uint q = ((2 * localIndex) / h) * h;
+		uint half_h = h >> 1;
+		uvec2 indices = q + uvec2( localIndex % half_h, (localIndex % half_h) + half_h );
+
+		localCompareAndSwap(indices);
+	}
+}
+
+void localBMS(uint n)
+{
+    for(uint h = 2; h <= n; h <<= 1)
+    {
+        localFlip(h);
+        localDisperse(h/2);
+    }
+}
+
+//run onlu one i grup
+layout(local_size_x = 128, local_size_y = 1, local_size_z = 1) in;
+void BitonicSort()
+{
+	localIndex = gl_LocalInvocationID.x;
+    globalIndex = gl_GlobalInvocationID.x;
+    uint offset = gl_WorkGroupSize.x * 2 * gl_WorkGroupID.x;
+
+    if (push.algorithm == 0 || push.algorithm == 3)
+    {
+        values[localIndex*2]   = indexes[offset + localIndex*2];
+	    values[localIndex*2+1] = indexes[offset + localIndex*2+1];
+    }
+
+    switch (push.algorithm)
+    {
+        case 0:
+            localBMS(push.size);
+            break;
+        case 1:
+            globalFlip(push.size);
+            break;
+        case 2:
+            globalDisperse(push.size);
+        case 3:
+            localDisperse(push.size);
+            break;
+    }
+
+    if (push.algorithm == 0 || push.algorithm == 3)
+    {
+        barrier();
+        indexes[offset + localIndex*2]   = values[localIndex*2];
+        indexes[offset + localIndex*2+1] = values[localIndex*2+1];
+    }
+
+}
+
+layout(local_size_x = 128, local_size_y = 1, local_size_z = 1) in;
+void CalculateOffsets()
+{
+    uint index = gl_GlobalInvocationID.x;
+    uint null = -1;
+
+    uint key = indexes[index].key;
+	uint keyPrev = index == 0 ? null : indexes[index - 1].key;
+
+	if (key != keyPrev)
+	{
+		LookUp[key] = index;
+	}
+}

@@ -31,8 +31,8 @@ void ComputePipeline::Init(const ComputePipelineSpecification& spec)
 		.flags = 0,
 		.setLayoutCount = 1,
 		.pSetLayouts = &m_Spec.descriptorLayout,
-		.pushConstantRangeCount = 1,
-		.pPushConstantRanges = &pushConstant,
+		.pushConstantRangeCount = m_Spec.constantsSize == 0 ? 0u : 1u,
+		.pPushConstantRanges = m_Spec.constantsSize == 0 ? nullptr : &pushConstant,
 	};
 
 	vkCreatePipelineLayout(m_Spec.device, &pipelineLayoutInfo, nullptr, &m_PipelineLayout);
@@ -68,7 +68,10 @@ void ComputePipeline::Dispatch(VkCommandBuffer commandBuffer, uint32_t groupCoun
 	vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, m_Pipeline);
 	vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, m_PipelineLayout, 0, 1, descriptorSet, 0, nullptr);
 
-	vkCmdPushConstants(commandBuffer, m_PipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0, m_Spec.constantsSize, pushData);
+	if (pushData)
+	{
+		vkCmdPushConstants(commandBuffer, m_PipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0, m_Spec.constantsSize, pushData);
+	}
 
 	vkCmdDispatch(commandBuffer, groupCount, 1, 1);
 
