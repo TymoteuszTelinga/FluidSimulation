@@ -148,6 +148,7 @@
     <ClCompile Include="src\main.cpp" />
     <ClCompile Include="src\Renderer\Buffer.cpp" />
     <ClCompile Include="src\Renderer\ComputePipeline.cpp" />
+    <ClCompile Include="src\Renderer\DescriptorLayout.cpp" />
     <ClCompile Include="src\Renderer\Device.cpp" />
     <ClCompile Include="src\Renderer\Image.cpp" />
     <ClCompile Include="src\Renderer\Renderer.cpp" />
@@ -163,6 +164,7 @@
     <ClInclude Include="src\Events\WindowEvent.h" />
     <ClInclude Include="src\Renderer\Buffer.h" />
     <ClInclude Include="src\Renderer\ComputePipeline.h" />
+    <ClInclude Include="src\Renderer\DescriptorLayout.h" />
     <ClInclude Include="src\Renderer\Device.h" />
     <ClInclude Include="src\Renderer\Image.h" />
     <ClInclude Include="src\Renderer\Renderer.h" />

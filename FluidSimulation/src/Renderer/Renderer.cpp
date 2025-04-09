@@ -153,13 +153,13 @@ static struct UniformBufferObject
 
 static struct SimulationUBO
 {
-	float simulationHeight = 4.5f / 2.f;//in use
-	float simulationWidth = 8.f / 2.f;//in use
+	float simulationHeight = 4.5f / 2.f * 4.f;//in use
+	float simulationWidth = 8.f / 2.f * 4.f;//in use
 	float collisionDamping = 0.8f;//in use
 	float kernelRadius = 0.3;//in use
 	float targetDensity = 2.75f;//in use
 	float pressureMultiplier = 10.5f;//in use
-	uint32_t particlesCount = 256 * 2;//in use (256 * 2^n)
+	uint32_t particlesCount = 256 * 128;//in use (256 * 2^n)
 } s_SimUBO;
 
 Renderer::~Renderer()
@@ -180,9 +180,10 @@ Renderer::~Renderer()
 	}
 
 	vkDestroyDescriptorPool(m_Device, m_DescriptorPool, nullptr);
-	vkDestroyDescriptorSetLayout(m_Device, m_DescriptorSetLayout, nullptr);
-	vkDestroyDescriptorSetLayout(m_Device, m_ComputeDescriptorSetLayout, nullptr);
-	vkDestroyDescriptorSetLayout(m_Device, m_SortDescriptorSetLayout, nullptr);
+	m_GraphicsSetLayout.Free();
+	m_SimulationSetLayout.Free();
+	m_SortSetLayout.Free();
+	//vkDestroyDescriptorSetLayout(m_Device, m_SortDescriptorSetLayout, nullptr);
 
 	m_VertexBuffer.Free();
 	m_IndexBuffer.Free();
@@ -204,6 +205,7 @@ Renderer::~Renderer()
 	m_UpdateStep.Free();
 
 	m_SortStep.Free();
+	m_OffsetStep.Free();
 
 	vkDestroyPipeline(m_Device, m_GraphicsPipeline, nullptr);
 	vkDestroyPipelineLayout(m_Device, m_PipelineLayout, nullptr);
@@ -521,7 +523,7 @@ void Renderer::CreateSwapChain()
 	}
 
 	VkPresentModeKHR PresentMode = VK_PRESENT_MODE_FIFO_KHR;//alway suported (vsync on) in future chenge to Imidient mode (vsync off)
-	//PresentMode = VK_PRESENT_MODE_IMMEDIATE_KHR; //vsync off
+	PresentMode = VK_PRESENT_MODE_IMMEDIATE_KHR; //vsync off
 
 	uint32_t queueFamily = m_PhysicalDevice.GetFamilyQueue(VK_QUEUE_GRAPHICS_BIT);
 	m_ImageExtend = SurfaceCapabilities.currentExtent;
@@ -665,93 +667,34 @@ void Renderer::CreateRenderPass()
 void Renderer::CreateDescriptorSetLayout()
 {
 	//Graphics
-	VkDescriptorSetLayoutBinding uboLayoutBinding =
+	LayoutSpecification graphicsLayoutSpec =
 	{
-		.binding = 0,
-		.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-		.descriptorCount = 1,
-		.stageFlags = VK_SHADER_STAGE_VERTEX_BIT,
-		.pImmutableSamplers = nullptr
+		.device = {m_Device, m_PhysicalDevice.PhysicalDeviceHandle},
+		.stage = VK_SHADER_STAGE_VERTEX_BIT,
+		.types = {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER}
+		//uniform
 	};
+	m_GraphicsSetLayout.Init(graphicsLayoutSpec);
 
-	VkDescriptorSetLayoutCreateInfo layoutInfo =
+	//Simulation
+	LayoutSpecification simulationLayoutSpec =
 	{
-		.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
-		.pNext = nullptr,
-		.flags = 0,
-		.bindingCount = 1,
-		.pBindings = &uboLayoutBinding
+		.device = {m_Device, m_PhysicalDevice.PhysicalDeviceHandle},
+		.stage = VK_SHADER_STAGE_COMPUTE_BIT,
+		.types = {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER}
+		//uniform, particles, spacial, lookup
 	};
-
-	vkCreateDescriptorSetLayout(m_Device, &layoutInfo, nullptr, &m_DescriptorSetLayout);
-	//Compute
-	VkDescriptorSetLayoutBinding simUBOBinding =
-	{
-		.binding = 0,
-		.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-		.descriptorCount = 1,
-		.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
-		.pImmutableSamplers = nullptr
-	};
-
-	VkDescriptorSetLayoutBinding ssboLayoutBinding =
-	{
-		.binding = 1,
-		.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-		.descriptorCount = 1,
-		.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
-		.pImmutableSamplers = nullptr
-	};
-
-	VkDescriptorSetLayoutBinding spatialBinding =
-	{
-		.binding = 2,
-		.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-		.descriptorCount = 1,
-		.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
-		.pImmutableSamplers = nullptr
-	};
-
-	VkDescriptorSetLayoutBinding lookUpBinding =
-	{
-		.binding = 3,
-		.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-		.descriptorCount = 1,
-		.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
-		.pImmutableSamplers = nullptr
-	};
-
-	VkDescriptorSetLayoutBinding bindings[] = { simUBOBinding, ssboLayoutBinding, spatialBinding, lookUpBinding };
-	VkDescriptorSetLayoutCreateInfo ssboLayoutInfo =
-	{
-		.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
-		.pNext = nullptr,
-		.flags = 0,
-		.bindingCount = 4,
-		.pBindings = bindings
-	};
-
-	vkCreateDescriptorSetLayout(m_Device, &ssboLayoutInfo, nullptr, &m_ComputeDescriptorSetLayout);
+	m_SimulationSetLayout.Init(simulationLayoutSpec);
 
 	//sorting
-	VkDescriptorSetLayoutBinding sortBinding =
+	LayoutSpecification sortLayoutSpec =
 	{
-		.binding = 0,
-		.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-		.descriptorCount = 1,
-		.stageFlags = VK_SHADER_STAGE_COMPUTE_BIT,
-		.pImmutableSamplers = nullptr
+		.device = {m_Device, m_PhysicalDevice.PhysicalDeviceHandle},
+		.stage = VK_SHADER_STAGE_COMPUTE_BIT,
+		.types = {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER}
+		//spatial, lookup
 	};
-
-	VkDescriptorSetLayoutCreateInfo sortLayoutInfo =
-	{
-		.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO,
-		.pNext = nullptr,
-		.flags = 0,
-		.bindingCount = 1,
-		.pBindings = &sortBinding
-	};
-	vkCreateDescriptorSetLayout(m_Device, &sortLayoutInfo, nullptr, &m_SortDescriptorSetLayout);
+	m_SortSetLayout.Init(sortLayoutSpec);
 
 }
 
@@ -922,13 +865,16 @@ void Renderer::CreateGraphicsPipeline()
 	};
 
 	//uniforms buffer?
+	VkDescriptorSetLayout graphicsSetLayout = m_GraphicsSetLayout.GetHandle();
+
 	VkPipelineLayoutCreateInfo pipelineLayoutInfo =
 	{
 		.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
 		.pNext = nullptr,
 		.flags = 0,
 		.setLayoutCount = 1, 
-		.pSetLayouts = &m_DescriptorSetLayout,
+		//.pSetLayouts = &m_DescriptorSetLayout,
+		.pSetLayouts = &graphicsSetLayout,
 		.pushConstantRangeCount = 0, //edit
 		.pPushConstantRanges = nullptr //edit
 	};
@@ -971,7 +917,7 @@ void Renderer::CreateComputePipeline()
 		.device = {m_Device, m_PhysicalDevice.PhysicalDeviceHandle},
 		.shaderPath = "src\\Shaders\\Simulation\\simulation2D.spv",
 		.entryPoint = "ExternalForce",
-		.descriptorLayout = m_ComputeDescriptorSetLayout,
+		.descriptorLayout = m_SimulationSetLayout.GetHandle(),
 		.constantsSize = sizeof(float)
 	};
 	m_GravityStep.Init(gravitySpec);
@@ -981,7 +927,7 @@ void Renderer::CreateComputePipeline()
 		.device = {m_Device, m_PhysicalDevice.PhysicalDeviceHandle},
 		.shaderPath = "src\\Shaders\\Simulation\\simulation2D.spv",
 		.entryPoint = "DensityStep",
-		.descriptorLayout = m_ComputeDescriptorSetLayout,
+		.descriptorLayout = m_SimulationSetLayout.GetHandle(),
 		.constantsSize = sizeof(float)
 	};
 	m_DensityStep.Init(densitySpec);
@@ -991,7 +937,7 @@ void Renderer::CreateComputePipeline()
 		.device = {m_Device, m_PhysicalDevice.PhysicalDeviceHandle},
 		.shaderPath = "src\\Shaders\\Simulation\\simulation2D.spv",
 		.entryPoint = "PressureStep",
-		.descriptorLayout = m_ComputeDescriptorSetLayout,
+		.descriptorLayout = m_SimulationSetLayout.GetHandle(),
 		.constantsSize = sizeof(float)
 	};
 	m_PressureStep.Init(pressureSpec);
@@ -1001,7 +947,7 @@ void Renderer::CreateComputePipeline()
 		.device = {m_Device, m_PhysicalDevice.PhysicalDeviceHandle},
 		.shaderPath = "src\\Shaders\\Simulation\\simulation2D.spv",
 		.entryPoint = "ViscosityStep",
-		.descriptorLayout = m_ComputeDescriptorSetLayout,
+		.descriptorLayout = m_SimulationSetLayout.GetHandle(),
 		.constantsSize = sizeof(float)
 	};
 	m_ViscosityStep.Init(viscositySpec);
@@ -1011,7 +957,7 @@ void Renderer::CreateComputePipeline()
 		.device = {m_Device, m_PhysicalDevice.PhysicalDeviceHandle},
 		.shaderPath = "src\\Shaders\\Simulation\\simulation2D.spv",
 		.entryPoint = "UpdateStep",
-		.descriptorLayout = m_ComputeDescriptorSetLayout,
+		.descriptorLayout = m_SimulationSetLayout.GetHandle(),
 		.constantsSize = sizeof(float)
 	};
 	m_UpdateStep.Init(updateSpec);
@@ -1021,10 +967,20 @@ void Renderer::CreateComputePipeline()
 		.device = {m_Device, m_PhysicalDevice.PhysicalDeviceHandle},
 		.shaderPath = "src\\Shaders\\Sorting\\Sort.spv",
 		.entryPoint = "BitonicSort",
-		.descriptorLayout = m_SortDescriptorSetLayout,
+		.descriptorLayout = m_SortSetLayout.GetHandle(),
 		.constantsSize = sizeof(uint32_t) * 2
 	};
 	m_SortStep.Init(sortSpec);
+
+	ComputePipelineSpecification offsetSpec =
+	{
+		.device = {m_Device, m_PhysicalDevice.PhysicalDeviceHandle},
+		.shaderPath = "src\\Shaders\\Sorting\\Sort.spv",
+		.entryPoint = "CalculateOffsets",
+		.descriptorLayout = m_SortSetLayout.GetHandle(),
+		.constantsSize = 0
+	};
+	m_OffsetStep.Init(offsetSpec);
 }
 
 void Renderer::CreateFramebuffers()
@@ -1226,7 +1182,7 @@ void Renderer::CreateDescriptorPool()
 
 void Renderer::CreateDescriptorSets()
 {
-	std::vector<VkDescriptorSetLayout> layouts(MAX_IN_FLIGHT_FRAMES, m_DescriptorSetLayout);
+	std::vector<VkDescriptorSetLayout> layouts(MAX_IN_FLIGHT_FRAMES, m_GraphicsSetLayout.GetHandle());
 
 	VkDescriptorSetAllocateInfo allocInfo =
 	{
@@ -1270,133 +1226,12 @@ void Renderer::CreateDescriptorSets()
 
 void Renderer::CreateComputeDescriptorSets()
 {
-	std::vector<VkDescriptorSetLayout> layouts(MAX_IN_FLIGHT_FRAMES, m_ComputeDescriptorSetLayout);
-
-	VkDescriptorSetAllocateInfo allocInfo =
-	{
-		.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
-		.pNext = nullptr,
-		.descriptorPool = m_DescriptorPool,
-		.descriptorSetCount = MAX_IN_FLIGHT_FRAMES,
-		.pSetLayouts = layouts.data()
-	};
-	m_ComputeDescriptorSets.resize(MAX_IN_FLIGHT_FRAMES);
-	vkAllocateDescriptorSets(m_Device, &allocInfo, m_ComputeDescriptorSets.data());
-
-	for (size_t i = 0; i < MAX_IN_FLIGHT_FRAMES; i++)
-	{
-		//sim uniform
-		VkDescriptorBufferInfo uniformInfo =
-		{
-			.buffer = m_SimulationSpecBuffer.GetHandle(),
-			.offset = 0,
-			.range = m_SimulationSpecBuffer.GetSize()
-		};
-
-		VkWriteDescriptorSet uniformWrite =
-		{
-			.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-			.pNext = nullptr,
-			.dstSet = m_ComputeDescriptorSets[i],
-			.dstBinding = 0,
-			.dstArrayElement = 0,
-			.descriptorCount = 1,
-			.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-			.pImageInfo = nullptr,
-			.pBufferInfo = &uniformInfo,
-			.pTexelBufferView = nullptr
-		};
-
-		//sim particles
-		VkDescriptorBufferInfo bufferInfo =
-		{
-			.buffer = m_InstanceBuffer.GetHandle(),
-			.offset = 0,
-			.range = m_InstanceBuffer.GetSize()
-		};
-
-		VkWriteDescriptorSet bufferWrite =
-		{
-			.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-			.pNext = nullptr,
-			.dstSet = m_ComputeDescriptorSets[i],
-			.dstBinding = 1,
-			.dstArrayElement = 0,
-			.descriptorCount = 1,
-			.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-			.pImageInfo = nullptr,
-			.pBufferInfo = &bufferInfo,
-			.pTexelBufferView = nullptr
-		};
-
-		VkDescriptorBufferInfo spatialInfo =
-		{
-			.buffer = m_SpatialBuffer.GetHandle(),
-			.offset = 0,
-			.range = m_SpatialBuffer.GetSize()
-		};
-
-		VkWriteDescriptorSet spatialWrite =
-		{
-			.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-			.pNext = nullptr,
-			.dstSet = m_ComputeDescriptorSets[i],
-			.dstBinding = 2,
-			.dstArrayElement = 0,
-			.descriptorCount = 1,
-			.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-			.pImageInfo = nullptr,
-			.pBufferInfo = &spatialInfo,
-			.pTexelBufferView = nullptr
-		};
-
-		VkWriteDescriptorSet descriptorWrite[] = { uniformWrite, bufferWrite, spatialWrite };
-		vkUpdateDescriptorSets(m_Device, 3, descriptorWrite, 0, nullptr);
-	}
+	m_ComputeDescriptorSets = m_SimulationSetLayout.CreateSets(m_DescriptorPool, MAX_IN_FLIGHT_FRAMES, { m_SimulationSpecBuffer, m_InstanceBuffer, m_SpatialBuffer, m_LookUpBuffer });
 }
 
 void Renderer::CreateSortDescriptorSets()
 {
-	std::vector<VkDescriptorSetLayout> layouts(MAX_IN_FLIGHT_FRAMES, m_SortDescriptorSetLayout);
-
-	VkDescriptorSetAllocateInfo allocInfo =
-	{
-		.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
-		.pNext = nullptr,
-		.descriptorPool = m_DescriptorPool,
-		.descriptorSetCount = MAX_IN_FLIGHT_FRAMES,
-		.pSetLayouts = layouts.data()
-	};
-
-	m_SortDescriptorSets.resize(MAX_IN_FLIGHT_FRAMES);
-	vkAllocateDescriptorSets(m_Device, &allocInfo, m_SortDescriptorSets.data());
-
-	for (size_t i = 0; i < MAX_IN_FLIGHT_FRAMES; i++)
-	{
-		VkDescriptorBufferInfo spatialInfo =
-		{
-			.buffer = m_SpatialBuffer.GetHandle(),
-			.offset = 0,
-			.range = m_SpatialBuffer.GetSize()
-		};
-
-		VkWriteDescriptorSet spatialWrite =
-		{
-			.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
-			.pNext = nullptr,
-			.dstSet = m_SortDescriptorSets[i],
-			.dstBinding = 0,
-			.dstArrayElement = 0,
-			.descriptorCount = 1,
-			.descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
-			.pImageInfo = nullptr,
-			.pBufferInfo = &spatialInfo,
-			.pTexelBufferView = nullptr
-		};
-
-		VkWriteDescriptorSet descriptorWrite[] = { spatialWrite };
-		vkUpdateDescriptorSets(m_Device, 1, descriptorWrite, 0, nullptr);
-	}
+	m_SortDescriptorSets = m_SortSetLayout.CreateSets(m_DescriptorPool, MAX_IN_FLIGHT_FRAMES, { m_SpatialBuffer, m_LookUpBuffer });
 }
 
 void Renderer::CreateCommandBuffer()
@@ -1611,6 +1446,27 @@ void Renderer::RenderFrame(float deltaTime)
 		}
 	}
 
+	//ofsets
+	vkWaitForFences(m_Device, 1, &m_InFlightFences[curentFrame], VK_TRUE, UINT64_MAX);
+	vkResetFences(m_Device, 1, &m_InFlightFences[curentFrame]);
+
+	vkResetCommandBuffer(m_CommandBuffers[curentFrame], 0);
+	m_OffsetStep.Dispatch(m_CommandBuffers[curentFrame], s_SimUBO.particlesCount / 128, &m_SortDescriptorSets[0]);
+
+	VkSubmitInfo computeSubmitInfo =
+	{
+		.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
+		.pNext = nullptr,
+		.waitSemaphoreCount = 0,
+		.pWaitSemaphores = nullptr,
+		.pWaitDstStageMask = nullptr,
+		.commandBufferCount = 1,
+		.pCommandBuffers = &m_CommandBuffers[curentFrame],
+		.signalSemaphoreCount = 0,
+		.pSignalSemaphores = nullptr
+	};
+	vkQueueSubmit(m_ComputeQueue, 1, &computeSubmitInfo, m_InFlightFences[curentFrame]);
+	//offsets
 	RunSimulationStep(m_DensityStep, deltaTime);
 	RunSimulationStep(m_PressureStep, deltaTime);
 	RunSimulationStep(m_ViscosityStep, deltaTime);

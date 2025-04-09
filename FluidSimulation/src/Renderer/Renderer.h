@@ -8,6 +8,7 @@
 #include "Image.h"
 #include "Buffer.h"
 #include "ComputePipeline.h"
+#include "DescriptorLayout.h"
 
 class Renderer
 {
@@ -125,17 +126,18 @@ private:
 	std::vector<Buffer> m_UniformBuffers;
 	Buffer m_SimulationSpecBuffer;
 
-	//Graphics
 	VkDescriptorPool m_DescriptorPool = VK_NULL_HANDLE;
 
-	VkDescriptorSetLayout m_DescriptorSetLayout = VK_NULL_HANDLE;
+	//Graphics
+	//VkDescriptorSetLayout m_DescriptorSetLayout = VK_NULL_HANDLE;
+	DescriptorLayout m_GraphicsSetLayout;
 	std::vector<VkDescriptorSet> m_DescriptorSets;
 
 	VkPipelineLayout m_PipelineLayout = VK_NULL_HANDLE;
 	VkPipeline m_GraphicsPipeline = VK_NULL_HANDLE;
 
 	//Compute
-	VkDescriptorSetLayout m_ComputeDescriptorSetLayout = VK_NULL_HANDLE;
+	DescriptorLayout m_SimulationSetLayout;
 	std::vector<VkDescriptorSet> m_ComputeDescriptorSets;
 
 	ComputePipeline m_GravityStep;
@@ -145,10 +147,12 @@ private:
 	ComputePipeline m_UpdateStep;
 
 	//sorting
-	VkDescriptorSetLayout m_SortDescriptorSetLayout = VK_NULL_HANDLE;
+	//VkDescriptorSetLayout m_SortDescriptorSetLayout = VK_NULL_HANDLE;
+	DescriptorLayout m_SortSetLayout;
 	std::vector<VkDescriptorSet> m_SortDescriptorSets;
 
 	ComputePipeline m_SortStep;
+	ComputePipeline m_OffsetStep;
 
 
 	
