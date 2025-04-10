@@ -4,6 +4,7 @@ layout(push_constant) uniform Push
 {
 	uint algorithm;
     uint size;
+    uint ParticlesCount;
 } push;
 
 struct Entry
@@ -31,6 +32,9 @@ shared Entry values[N];
 //--------------HelperFunctions--------------
 void globalCompareAndSwap(uvec2 idx)
 {
+    if(idx.x >= push.ParticlesCount || idx.y >= push.ParticlesCount)
+        return;
+
     if(indexes[idx.x].key > indexes[idx.y].key)
     {
         Entry tmp = indexes[idx.x];
@@ -53,7 +57,8 @@ void globalFlip(uint h)
 {
 	uint q = ((2 * globalIndex) / h) * h;
     uint half_h = h >> 1;
-    uvec2 indices = q + uvec2( globalIndex % half_h , h - (globalIndex % half_h) - 1);
+    uint t = globalIndex % half_h;
+    uvec2 indices = q + uvec2( half_h - t , h - (half_h - t) - 1);
 
 	globalCompareAndSwap(indices);
 }
@@ -75,6 +80,7 @@ void localFlip(uint h)
     uint half_h = h >> 1;
     uvec2 indices = q + uvec2( localIndex % half_h , h - (localIndex % half_h) - 1);
 
+    // globalCompareAndSwap(indices);
     localCompareAndSwap(indices);
 }
 
@@ -88,6 +94,7 @@ void localDisperse(uint h)
 		uint half_h = h >> 1;
 		uvec2 indices = q + uvec2( localIndex % half_h, (localIndex % half_h) + half_h );
 
+        // globalCompareAndSwap(indices);
 		localCompareAndSwap(indices);
 	}
 }

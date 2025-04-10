@@ -159,7 +159,7 @@ static struct SimulationUBO
 	float kernelRadius = 0.3;//in use
 	float targetDensity = 2.75f;//in use
 	float pressureMultiplier = 10.5f;//in use
-	uint32_t particlesCount = 256 * 128;//in use (256 * 2^n)
+	uint32_t particlesCount = 256 * (128+32+16);//in use (256 * n)
 } s_SimUBO;
 
 Renderer::~Renderer()
@@ -183,7 +183,6 @@ Renderer::~Renderer()
 	m_GraphicsSetLayout.Free();
 	m_SimulationSetLayout.Free();
 	m_SortSetLayout.Free();
-	//vkDestroyDescriptorSetLayout(m_Device, m_SortDescriptorSetLayout, nullptr);
 
 	m_VertexBuffer.Free();
 	m_IndexBuffer.Free();
@@ -523,7 +522,7 @@ void Renderer::CreateSwapChain()
 	}
 
 	VkPresentModeKHR PresentMode = VK_PRESENT_MODE_FIFO_KHR;//alway suported (vsync on) in future chenge to Imidient mode (vsync off)
-	PresentMode = VK_PRESENT_MODE_IMMEDIATE_KHR; //vsync off
+	//PresentMode = VK_PRESENT_MODE_IMMEDIATE_KHR; //vsync off
 
 	uint32_t queueFamily = m_PhysicalDevice.GetFamilyQueue(VK_QUEUE_GRAPHICS_BIT);
 	m_ImageExtend = SurfaceCapabilities.currentExtent;
@@ -968,7 +967,7 @@ void Renderer::CreateComputePipeline()
 		.shaderPath = "src\\Shaders\\Sorting\\Sort.spv",
 		.entryPoint = "BitonicSort",
 		.descriptorLayout = m_SortSetLayout.GetHandle(),
-		.constantsSize = sizeof(uint32_t) * 2
+		.constantsSize = sizeof(uint32_t) * 3
 	};
 	m_SortStep.Init(sortSpec);
 
@@ -1423,11 +1422,24 @@ void Renderer::RenderFrame(float deltaTime)
 	deltaTime = std::min(deltaTime, 1.f / 60.f);
 	RunSimulationStep(m_GravityStep, deltaTime);
 
+	uint32_t steps = s_SimUBO.particlesCount / 256;
+	for (size_t i = 0; i < 200; i++)
+	{
+		if (steps <= std::pow(2, i))
+		{
+			steps = std::pow(2, i);
+			break;
+		}
+	}
+
+	steps *= 256;
+
 	//sorting
+	//on global run ony 2^n < s_SimUBO.particlesCount / 256
 	uint32_t h = 256;
 	RunSortStep(m_SortStep, h, 0);//local BMS
 	h *= 2;
-	for (; h <= s_SimUBO.particlesCount; h *= 2) 
+	for (; h <= steps; h *= 2)
 	{
 		RunSortStep(m_SortStep, h, 1);//Global flip
 
@@ -1441,7 +1453,7 @@ void Renderer::RenderFrame(float deltaTime)
 			}
 			else 
 			{
-				RunSortStep(m_SortStep, hh, 2);
+				RunSortStep(m_SortStep, hh, 2);//global dips
 			}
 		}
 	}
@@ -1572,7 +1584,8 @@ void Renderer::RunSortStep(ComputePipeline& sortStep, uint32_t size, uint32_t al
 	vkResetFences(m_Device, 1, &m_InFlightFences[curentFrame]);
 
 	vkResetCommandBuffer(m_CommandBuffers[curentFrame], 0);
-	uint32_t data[] = { algorithm, size };
+	uint32_t data[] = { algorithm, size , s_SimUBO.particlesCount };
+
 	sortStep.Dispatch(m_CommandBuffers[curentFrame], s_SimUBO.particlesCount / 256, &m_SortDescriptorSets[0], data);
 
 	VkSubmitInfo computeSubmitInfo =
