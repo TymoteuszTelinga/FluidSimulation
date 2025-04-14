@@ -159,7 +159,7 @@ static struct SimulationUBO
 	float kernelRadius = 0.3;//in use
 	float targetDensity = 2.75f;//in use
 	float pressureMultiplier = 10.5f;//in use
-	uint32_t particlesCount = 256 * (128+32+16);//in use (256 * n)
+	uint32_t particlesCount = 256 * (128+64+16);//in use (256 * n)
 } s_SimUBO;
 
 Renderer::~Renderer()
@@ -180,6 +180,7 @@ Renderer::~Renderer()
 	}
 
 	vkDestroyDescriptorPool(m_Device, m_DescriptorPool, nullptr);
+
 	m_GraphicsSetLayout.Free();
 	m_SimulationSetLayout.Free();
 	m_SortSetLayout.Free();
@@ -189,6 +190,7 @@ Renderer::~Renderer()
 	m_InstanceBuffer.Free();
 	m_SpatialBuffer.Free();
 	m_LookUpBuffer.Free();
+
 	for (auto& buffer : m_UniformBuffers)
 	{
 		buffer.Free();
@@ -522,7 +524,7 @@ void Renderer::CreateSwapChain()
 	}
 
 	VkPresentModeKHR PresentMode = VK_PRESENT_MODE_FIFO_KHR;//alway suported (vsync on) in future chenge to Imidient mode (vsync off)
-	//PresentMode = VK_PRESENT_MODE_IMMEDIATE_KHR; //vsync off
+	PresentMode = VK_PRESENT_MODE_IMMEDIATE_KHR; //vsync off
 
 	uint32_t queueFamily = m_PhysicalDevice.GetFamilyQueue(VK_QUEUE_GRAPHICS_BIT);
 	m_ImageExtend = SurfaceCapabilities.currentExtent;
@@ -1416,11 +1418,50 @@ void Renderer::recordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t image
 	vkEndCommandBuffer(commandBuffer);
 }
 
+void Renderer::Begin(VkCommandBuffer commandBuffer)
+{
+	vkWaitForFences(m_Device, 1, &m_InFlightFences[curentFrame], VK_TRUE, UINT64_MAX);
+	vkResetFences(m_Device, 1, &m_InFlightFences[curentFrame]);
+
+	vkResetCommandBuffer(commandBuffer, 0);
+
+	VkCommandBufferBeginInfo beginBufferInfo =
+	{
+		.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+		.pNext = nullptr,
+		.flags = 0,
+		.pInheritanceInfo = nullptr
+	};
+
+	vkBeginCommandBuffer(commandBuffer, &beginBufferInfo);
+}
+
+void Renderer::End(VkCommandBuffer commandBuffer)
+{
+	vkEndCommandBuffer(commandBuffer);
+
+	VkSubmitInfo computeSubmitInfo =
+	{
+		.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
+		.pNext = nullptr,
+		.waitSemaphoreCount = 0,
+		.pWaitSemaphores = nullptr,
+		.pWaitDstStageMask = nullptr,
+		.commandBufferCount = 1,
+		.pCommandBuffers = &commandBuffer,
+		.signalSemaphoreCount = 0,
+		.pSignalSemaphores = nullptr
+	};
+	vkQueueSubmit(m_ComputeQueue, 1, &computeSubmitInfo, m_InFlightFences[curentFrame]);
+}
+
 void Renderer::RenderFrame(float deltaTime)
 {
 	//compute faze
 	deltaTime = std::min(deltaTime, 1.f / 60.f);
 	RunSimulationStep(m_GravityStep, deltaTime);
+	//sorting
+	Begin(m_CommandBuffers[curentFrame]);
 
 	uint32_t steps = s_SimUBO.particlesCount / 256;
 	for (size_t i = 0; i < 200; i++)
@@ -1433,10 +1474,8 @@ void Renderer::RenderFrame(float deltaTime)
 	}
 
 	steps *= 256;
-
-	//sorting
-	//on global run ony 2^n < s_SimUBO.particlesCount / 256
 	uint32_t h = 256;
+	//LOG(WARNING, "SORT Beggin")
 	RunSortStep(m_SortStep, h, 0);//local BMS
 	h *= 2;
 	for (; h <= steps; h *= 2)
@@ -1458,27 +1497,13 @@ void Renderer::RenderFrame(float deltaTime)
 		}
 	}
 
-	//ofsets
-	vkWaitForFences(m_Device, 1, &m_InFlightFences[curentFrame], VK_TRUE, UINT64_MAX);
-	vkResetFences(m_Device, 1, &m_InFlightFences[curentFrame]);
 
-	vkResetCommandBuffer(m_CommandBuffers[curentFrame], 0);
+	End(m_CommandBuffers[curentFrame]);
+
+	Begin(m_CommandBuffers[curentFrame]);
 	m_OffsetStep.Dispatch(m_CommandBuffers[curentFrame], s_SimUBO.particlesCount / 128, &m_SortDescriptorSets[0]);
+	End(m_CommandBuffers[curentFrame]);
 
-	VkSubmitInfo computeSubmitInfo =
-	{
-		.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
-		.pNext = nullptr,
-		.waitSemaphoreCount = 0,
-		.pWaitSemaphores = nullptr,
-		.pWaitDstStageMask = nullptr,
-		.commandBufferCount = 1,
-		.pCommandBuffers = &m_CommandBuffers[curentFrame],
-		.signalSemaphoreCount = 0,
-		.pSignalSemaphores = nullptr
-	};
-	vkQueueSubmit(m_ComputeQueue, 1, &computeSubmitInfo, m_InFlightFences[curentFrame]);
-	//offsets
 	RunSimulationStep(m_DensityStep, deltaTime);
 	RunSimulationStep(m_PressureStep, deltaTime);
 	RunSimulationStep(m_ViscosityStep, deltaTime);
@@ -1557,50 +1582,31 @@ void Renderer::updateUniformBuffer(float deltaTime, uint32_t currentImage)
 
 void Renderer::RunSimulationStep(ComputePipeline& siulationStep, float deltaTime)
 {
-	vkWaitForFences(m_Device, 1, &m_InFlightFences[curentFrame], VK_TRUE, UINT64_MAX);
-	vkResetFences(m_Device, 1, &m_InFlightFences[curentFrame]);
+	Begin(m_CommandBuffers[curentFrame]);
 
-	vkResetCommandBuffer(m_CommandBuffers[curentFrame], 0);
 	siulationStep.Dispatch(m_CommandBuffers[curentFrame], s_SimUBO.particlesCount / 256, &m_ComputeDescriptorSets[0], &deltaTime);
 
-	VkSubmitInfo computeSubmitInfo =
-	{
-		.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
-		.pNext = nullptr,
-		.waitSemaphoreCount = 0,
-		.pWaitSemaphores = nullptr,
-		.pWaitDstStageMask = nullptr,
-		.commandBufferCount = 1,
-		.pCommandBuffers = &m_CommandBuffers[curentFrame],
-		.signalSemaphoreCount = 0,
-		.pSignalSemaphores = nullptr
-	};
-	vkQueueSubmit(m_ComputeQueue, 1, &computeSubmitInfo, m_InFlightFences[curentFrame]);
+	End(m_CommandBuffers[curentFrame]);
 }
 
 void Renderer::RunSortStep(ComputePipeline& sortStep, uint32_t size, uint32_t algorithm)
 {
-	vkWaitForFences(m_Device, 1, &m_InFlightFences[curentFrame], VK_TRUE, UINT64_MAX);
-	vkResetFences(m_Device, 1, &m_InFlightFences[curentFrame]);
 
-	vkResetCommandBuffer(m_CommandBuffers[curentFrame], 0);
 	uint32_t data[] = { algorithm, size , s_SimUBO.particlesCount };
 
-	sortStep.Dispatch(m_CommandBuffers[curentFrame], s_SimUBO.particlesCount / 256, &m_SortDescriptorSets[0], data);
-
-	VkSubmitInfo computeSubmitInfo =
+	uint32_t invocations = (s_SimUBO.particlesCount / size) * (size / 256);
+	//invocations = s_SimUBO.particlesCount / 256;
+	if (uint32_t rest = s_SimUBO.particlesCount % size)
 	{
-		.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
-		.pNext = nullptr,
-		.waitSemaphoreCount = 0,
-		.pWaitSemaphores = nullptr,
-		.pWaitDstStageMask = nullptr,
-		.commandBufferCount = 1,
-		.pCommandBuffers = &m_CommandBuffers[curentFrame],
-		.signalSemaphoreCount = 0,
-		.pSignalSemaphores = nullptr
-	};
-	vkQueueSubmit(m_ComputeQueue, 1, &computeSubmitInfo, m_InFlightFences[curentFrame]);
+		uint32_t invocationsPerHeight = size / 256;
+		uint32_t overflowInvocations = (size - rest) / 256;
+		int32_t addedInvocations = invocationsPerHeight - 2 * overflowInvocations;
+		invocations += std::max(addedInvocations, 0);
+		invocations = std::min(s_SimUBO.particlesCount / 256, invocations);
+	}
+
+	//LOG(DEBUG, "Algorithm: %d, h:%d, inv:%d", algorithm, size, invocations);
+	sortStep.Dispatch(m_CommandBuffers[curentFrame], invocations, &m_SortDescriptorSets[0], data);
 }
 
 void Renderer::RecreateSwapChain()

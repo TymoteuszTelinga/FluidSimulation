@@ -55,16 +55,6 @@ void ComputePipeline::Init(const ComputePipelineSpecification& spec)
 
 void ComputePipeline::Dispatch(VkCommandBuffer commandBuffer, uint32_t groupCount, const VkDescriptorSet* descriptorSet, const void* pushData)
 {
-	VkCommandBufferBeginInfo beginBufferInfo =
-	{
-		.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
-		.pNext = nullptr,
-		.flags = 0,
-		.pInheritanceInfo = nullptr
-	};
-
-	vkBeginCommandBuffer(commandBuffer, &beginBufferInfo);
-
 	vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, m_Pipeline);
 	vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, m_PipelineLayout, 0, 1, descriptorSet, 0, nullptr);
 
@@ -75,7 +65,16 @@ void ComputePipeline::Dispatch(VkCommandBuffer commandBuffer, uint32_t groupCoun
 
 	vkCmdDispatch(commandBuffer, groupCount, 1, 1);
 
-	vkEndCommandBuffer(commandBuffer);
+	VkMemoryBarrier barrier =
+	{
+		.sType = VK_STRUCTURE_TYPE_MEMORY_BARRIER,
+		.pNext = nullptr,
+		.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT,
+		.dstAccessMask = VK_ACCESS_SHADER_READ_BIT
+	};
+
+	vkCmdPipelineBarrier(commandBuffer, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, 0, 1, &barrier, 0, nullptr, 0, nullptr);
+
 }
 
 void ComputePipeline::Free()

@@ -31,6 +31,9 @@ public:
 	//temporary solution
 	//void UpdateStep(VkCommandBuffer commandBuffer, float deltaTime);
 	//void Update2Step(VkCommandBuffer commandBuffer, float deltaTime);
+	void Begin(VkCommandBuffer commandBuffer);
+	void End(VkCommandBuffer commandBuffer);
+
 	void RenderFrame(float deltaTime);
 	void updateUniformBuffer(float deltaTime, uint32_t currentImage);
 
