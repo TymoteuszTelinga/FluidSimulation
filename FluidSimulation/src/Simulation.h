@@ -2,6 +2,7 @@
 
 #include "Core/Application.h"
 #include "Events/WindowEvent.h"
+#include "Renderer/Camera.h"
 
 class Simulation : public Application
 {
@@ -16,7 +17,12 @@ public:
 private:
 
 	bool OnResize(WindowResizeEvent& e);
+	void UpdateCamera(float deltaTime);
 
 private:
 	bool bPoused = false;
+
+	Scope<Camera> m_Camera;
+	glm::vec2 m_LastMousePosition;
+
 };

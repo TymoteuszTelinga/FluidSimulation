@@ -144,9 +144,11 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClCompile Include="src\Core\Application.cpp" />
+    <ClCompile Include="src\Core\Input.cpp" />
     <ClCompile Include="src\Core\Window.cpp" />
     <ClCompile Include="src\main.cpp" />
     <ClCompile Include="src\Renderer\Buffer.cpp" />
+    <ClCompile Include="src\Renderer\Camera.cpp" />
     <ClCompile Include="src\Renderer\ComputePipeline.cpp" />
     <ClCompile Include="src\Renderer\DescriptorLayout.cpp" />
     <ClCompile Include="src\Renderer\Device.cpp" />
@@ -158,11 +160,13 @@
   <ItemGroup>
     <ClInclude Include="src\Core\Application.h" />
     <ClInclude Include="src\Core\Base.h" />
+    <ClInclude Include="src\Core\Input.h" />
     <ClInclude Include="src\Core\Log.h" />
     <ClInclude Include="src\Core\Window.h" />
     <ClInclude Include="src\Events\Event.h" />
     <ClInclude Include="src\Events\WindowEvent.h" />
     <ClInclude Include="src\Renderer\Buffer.h" />
+    <ClInclude Include="src\Renderer\Camera.h" />
     <ClInclude Include="src\Renderer\ComputePipeline.h" />
     <ClInclude Include="src\Renderer\DescriptorLayout.h" />
     <ClInclude Include="src\Renderer\Device.h" />

@@ -18,6 +18,9 @@ public:
 	Application(const ApplicationSpecification& spec);
 	~Application();
 
+	static Application& Get() { return *s_Instance; }
+	Window& GetWindow() const { return *m_Window; };
+
 	virtual void Run();
 
 	virtual void OnUpdate(float deltaTime) {};

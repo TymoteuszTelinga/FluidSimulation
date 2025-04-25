@@ -8,6 +8,7 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 
+#include "Camera.h"
 #include "Utilities.h"
 
 static struct Vertex
@@ -128,7 +129,7 @@ static struct Instance
 	}
 };
 
-static const float PS = 0.025f;
+static const float PS = 0.05f;
 static const std::vector<Vertex> vertices = 
 {
 	{{-PS, -PS, 0.5f}, {1.0f, 0.0f, 0.0f}, {0.f, 1.f}},
@@ -159,7 +160,7 @@ static struct SimulationUBO
 	float kernelRadius = 0.3;//in use
 	float targetDensity = 2.75f;//in use
 	float pressureMultiplier = 10.5f;//in use
-	uint32_t particlesCount = 256 * (128+64+16);//in use (256 * n)
+	uint32_t particlesCount = 256 * (128);//in use (256 * n) (128 + 64 + 16 + 8)
 } s_SimUBO;
 
 Renderer::~Renderer()
@@ -802,8 +803,8 @@ void Renderer::CreateGraphicsPipeline()
 		.depthClampEnable = VK_FALSE,
 		.rasterizerDiscardEnable = VK_FALSE,
 		.polygonMode = VK_POLYGON_MODE_FILL,
-		.cullMode = VK_CULL_MODE_NONE,//VK_CULL_MODE_BACK_BIT
-		.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE,
+		.cullMode =  VK_CULL_MODE_BACK_BIT,//VK_CULL_MODE_NONE, //
+		.frontFace = VK_FRONT_FACE_CLOCKWISE, //VK_FRONT_FACE_COUNTER_CLOCKWISE,
 		.depthBiasEnable = VK_FALSE,
 		.depthBiasConstantFactor = 0.f,
 		.depthBiasClamp = 0.f,
@@ -1502,12 +1503,18 @@ void Renderer::RenderFrame(float deltaTime)
 
 	Begin(m_CommandBuffers[curentFrame]);
 	m_OffsetStep.Dispatch(m_CommandBuffers[curentFrame], s_SimUBO.particlesCount / 128, &m_SortDescriptorSets[0]);
-	End(m_CommandBuffers[curentFrame]);
+	//End(m_CommandBuffers[curentFrame]);
 
-	RunSimulationStep(m_DensityStep, deltaTime);
-	RunSimulationStep(m_PressureStep, deltaTime);
-	RunSimulationStep(m_ViscosityStep, deltaTime);
-	RunSimulationStep(m_UpdateStep, deltaTime);
+	//Begin(m_CommandBuffers[curentFrame]);
+	m_DensityStep.Dispatch(m_CommandBuffers[curentFrame], s_SimUBO.particlesCount / 256, &m_ComputeDescriptorSets[0], &deltaTime);
+	m_PressureStep.Dispatch(m_CommandBuffers[curentFrame], s_SimUBO.particlesCount / 256, &m_ComputeDescriptorSets[0], &deltaTime);
+	m_ViscosityStep.Dispatch(m_CommandBuffers[curentFrame], s_SimUBO.particlesCount / 256, &m_ComputeDescriptorSets[0], &deltaTime);
+	m_UpdateStep.Dispatch(m_CommandBuffers[curentFrame], s_SimUBO.particlesCount / 256, &m_ComputeDescriptorSets[0], &deltaTime);
+	End(m_CommandBuffers[curentFrame]);
+	//RunSimulationStep(m_DensityStep, deltaTime);
+	//RunSimulationStep(m_PressureStep, deltaTime);
+	//RunSimulationStep(m_ViscosityStep, deltaTime);
+	//RunSimulationStep(m_UpdateStep, deltaTime);
 	
 
 	//drawing
@@ -1565,10 +1572,21 @@ void Renderer::RenderFrame(float deltaTime)
 	curentFrame = (curentFrame + 1) % MAX_IN_FLIGHT_FRAMES;
 }
 
+void Renderer::UpdateCamera(const Camera& camera)
+{
+	UniformBufferObject ubo;
+	ubo.model = glm::mat4(1.f);
+	ubo.view = camera.GetViewMatrix();
+	ubo.proj = camera.GetProjectionMatrix();
+
+	m_UniformBuffers[curentFrame].Write(&ubo, sizeof(ubo));
+}
+
 void Renderer::updateUniformBuffer(float deltaTime, uint32_t currentImage)
 {
 	UniformBufferObject ubo;
-	ubo.model = glm::scale(glm::mat4(1.f), glm::vec3(1.0f));
+	//ubo.model = glm::scale(glm::mat4(1.f), glm::vec3(1.0f));
+	ubo.model = glm::mat4(1.f);
 	//ubo.model = glm::rotate(glm::mat4(1.f), glm::radians(90.f) * deltaTime, glm::vec3(0.f, 0.f, 1.f));
 	ubo.view = glm::mat4(1.f);
 	//ubo.view = glm::lookAt(glm::vec3(2.0f, 2.0f, 2.0f), glm::vec3(0.f), glm::vec3(0.f, 0.f, 1.f));

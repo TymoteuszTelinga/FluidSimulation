@@ -10,6 +10,8 @@
 #include "ComputePipeline.h"
 #include "DescriptorLayout.h"
 
+class Camera;
+
 class Renderer
 {
 	struct PhysicalDevice
@@ -35,6 +37,7 @@ public:
 	void End(VkCommandBuffer commandBuffer);
 
 	void RenderFrame(float deltaTime);
+	void UpdateCamera(const Camera& camera);
 	void updateUniformBuffer(float deltaTime, uint32_t currentImage);
 
 	//Fluid simlualtion steps
