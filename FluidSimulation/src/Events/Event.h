@@ -7,6 +7,7 @@ enum class EventType
 {
     None = 0,
     WindowResize,
+    KeyPressed,
 };
 
 #define EVENT_CLASS_TYPE(type) static EventType GetStaticType() { return EventType::type; }\

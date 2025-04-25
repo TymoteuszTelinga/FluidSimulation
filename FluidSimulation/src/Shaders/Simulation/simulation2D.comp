@@ -108,7 +108,7 @@ void ExternalForce()
 	Particle p = particles[index];
 
 	//Apply gravity
-	//p.velocity += vec2(0.f, 1.f) * 1.f * push.deltaTime;//ubo
+	p.velocity += vec2(0.f, 1.f) * 9.81f * push.deltaTime;//ubo
     //Predict position
     p.predictedPosition = p.position + (p.velocity * 1.f / 120.f);
 	

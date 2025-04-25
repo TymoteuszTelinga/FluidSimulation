@@ -5,8 +5,8 @@
 Simulation::Simulation(const ApplicationSpecification& spec)
 	:Application(spec)
 {
-	m_Camera = CreateScope<Camera>(Camera::ProjectionType::Perspective);
-	//m_Camera->SetViewportSize(32 + 2, 18 + 2);
+	m_Camera = CreateScope<Camera>(Camera::ProjectionType::Orthographic);
+	m_Camera->SetViewportSize(32 + 2, (4.5f * 6.f) + 2);
 }
 
 Simulation::~Simulation()
@@ -17,35 +17,50 @@ void Simulation::OnEvent(Event& e)
 {
 	EventDispatcher dispacher(e);
 	dispacher.Dispatch<WindowResizeEvent>(BIND_EVENT(Simulation::OnResize));
-
+	dispacher.Dispatch<KeyPressedEvent>(BIND_EVENT(Simulation::OnKeyPressed));
 }
 
 void Simulation::OnUpdate(float deltaTime)
 {
-	if (bPoused)
+	if (bMinimized)
 		return;
 
 	UpdateCamera(deltaTime);
 
 	m_Renderer->UpdateCamera(*m_Camera);
-	m_Renderer->RenderFrame(deltaTime);
+	if (!bPoused)
+	{
+		m_Renderer->SimulationStep(deltaTime);
+	}
 }
 
 void Simulation::OnRender()
 {
+	m_Renderer->RenderFrame(0.1f);
 }
 
 bool Simulation::OnResize(WindowResizeEvent& e)
 {
 	if (e.GetWidth() == 0 || e.GetHeight() == 0)
 	{
-		bPoused = true;
+		bMinimized = true;
 		return true;
 	}
 
-	bPoused = false;
+	bMinimized = false;
 
 	LOG(INFO, "Window size (%u x %u)", e.GetWidth(), e.GetHeight())
+
+	return true;
+}
+
+bool Simulation::OnKeyPressed(KeyPressedEvent& e)
+{
+	if (e.GetKeyCode() == GLFW_KEY_SPACE && !e.IsReapeted())
+	{
+		bPoused = !bPoused;
+		LOG(DEBUG, "Simulation state: %s", bPoused ? "Poused" : "played");
+	}
 
 	return true;
 }

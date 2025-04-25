@@ -14,7 +14,6 @@
 static struct Vertex
 {
 	glm::vec3 position;
-	glm::vec3 color;
 	glm::vec2 uv;
 
 	static VkVertexInputBindingDescription GetBindingDescription()
@@ -46,24 +45,11 @@ static struct Vertex
 			descriptions.push_back(VertexAttribute);
 		}
 
-		//color attrib
-		{
-			VkVertexInputAttributeDescription VertexAttribute =
-			{
-				.location = 1,
-				.binding = 0,
-				.format = VK_FORMAT_R32G32B32_SFLOAT,
-				.offset = offsetof(Vertex, color)
-			};
-
-			descriptions.push_back(VertexAttribute);
-		}
-
 		//UV attrib
 		{
 			VkVertexInputAttributeDescription VertexAttribute =
 			{
-				.location = 2,
+				.location = 1,
 				.binding = 0,
 				.format = VK_FORMAT_R32G32_SFLOAT,
 				.offset = offsetof(Vertex, uv)
@@ -132,10 +118,10 @@ static struct Instance
 static const float PS = 0.05f;
 static const std::vector<Vertex> vertices = 
 {
-	{{-PS, -PS, 0.5f}, {1.0f, 0.0f, 0.0f}, {0.f, 1.f}},
-	{{ PS, -PS, 0.5f}, {0.0f, 1.0f, 0.0f}, {1.f, 1.f}},
-	{{ PS,  PS, 0.5f}, {0.0f, 0.0f, 1.0f}, {1.f, 0.f}},
-	{{-PS,  PS, 0.5f}, {1.0f, 1.0f, 1.0f}, {0.f, 0.f}},
+	{{-PS, -PS, 0.5f}, {0.f, 1.f}},
+	{{ PS, -PS, 0.5f}, {1.f, 1.f}},
+	{{ PS,  PS, 0.5f}, {1.f, 0.f}},
+	{{-PS,  PS, 0.5f}, {0.f, 0.f}},
 };
 
 static const std::vector<uint16_t> indices = 
@@ -154,12 +140,12 @@ static struct UniformBufferObject
 
 static struct SimulationUBO
 {
-	float simulationHeight = 4.5f / 2.f * 4.f;//in use
+	float simulationHeight = 4.5f / 2.f * 6.f;//in use
 	float simulationWidth = 8.f / 2.f * 4.f;//in use
 	float collisionDamping = 0.8f;//in use
 	float kernelRadius = 0.3;//in use
-	float targetDensity = 2.75f;//in use
-	float pressureMultiplier = 10.5f;//in use
+	float targetDensity = 55.75f;//in use
+	float pressureMultiplier = 500.5f;//in use
 	uint32_t particlesCount = 256 * (128);//in use (256 * n) (128 + 64 + 16 + 8)
 } s_SimUBO;
 
@@ -1456,14 +1442,13 @@ void Renderer::End(VkCommandBuffer commandBuffer)
 	vkQueueSubmit(m_ComputeQueue, 1, &computeSubmitInfo, m_InFlightFences[curentFrame]);
 }
 
-void Renderer::RenderFrame(float deltaTime)
+void Renderer::SimulationStep(float deltaTime)
 {
-	//compute faze
 	deltaTime = std::min(deltaTime, 1.f / 60.f);
-	RunSimulationStep(m_GravityStep, deltaTime);
-	//sorting
 	Begin(m_CommandBuffers[curentFrame]);
+	m_GravityStep.Dispatch(m_CommandBuffers[curentFrame], s_SimUBO.particlesCount / 256, &m_ComputeDescriptorSets[0], &deltaTime);
 
+	//sorting
 	uint32_t steps = s_SimUBO.particlesCount / 256;
 	for (size_t i = 0; i < 200; i++)
 	{
@@ -1476,47 +1461,39 @@ void Renderer::RenderFrame(float deltaTime)
 
 	steps *= 256;
 	uint32_t h = 256;
-	//LOG(WARNING, "SORT Beggin")
+	//BMS
 	RunSortStep(m_SortStep, h, 0);//local BMS
 	h *= 2;
 	for (; h <= steps; h *= 2)
 	{
 		RunSortStep(m_SortStep, h, 1);//Global flip
 
-		for (uint32_t hh = h / 2; hh > 1; hh /= 2) 
+		for (uint32_t hh = h / 2; hh > 1; hh /= 2)
 		{
 
-			if (hh <= 256) 
+			if (hh <= 256)
 			{
 				RunSortStep(m_SortStep, hh, 3);
 				break;
 			}
-			else 
+			else
 			{
 				RunSortStep(m_SortStep, hh, 2);//global dips
 			}
 		}
 	}
 
-
-	End(m_CommandBuffers[curentFrame]);
-
-	Begin(m_CommandBuffers[curentFrame]);
 	m_OffsetStep.Dispatch(m_CommandBuffers[curentFrame], s_SimUBO.particlesCount / 128, &m_SortDescriptorSets[0]);
-	//End(m_CommandBuffers[curentFrame]);
-
-	//Begin(m_CommandBuffers[curentFrame]);
 	m_DensityStep.Dispatch(m_CommandBuffers[curentFrame], s_SimUBO.particlesCount / 256, &m_ComputeDescriptorSets[0], &deltaTime);
 	m_PressureStep.Dispatch(m_CommandBuffers[curentFrame], s_SimUBO.particlesCount / 256, &m_ComputeDescriptorSets[0], &deltaTime);
 	m_ViscosityStep.Dispatch(m_CommandBuffers[curentFrame], s_SimUBO.particlesCount / 256, &m_ComputeDescriptorSets[0], &deltaTime);
 	m_UpdateStep.Dispatch(m_CommandBuffers[curentFrame], s_SimUBO.particlesCount / 256, &m_ComputeDescriptorSets[0], &deltaTime);
-	End(m_CommandBuffers[curentFrame]);
-	//RunSimulationStep(m_DensityStep, deltaTime);
-	//RunSimulationStep(m_PressureStep, deltaTime);
-	//RunSimulationStep(m_ViscosityStep, deltaTime);
-	//RunSimulationStep(m_UpdateStep, deltaTime);
-	
 
+	End(m_CommandBuffers[curentFrame]);
+}
+
+void Renderer::RenderFrame(float deltaTime)
+{
 	//drawing
 	vkWaitForFences(m_Device, 1, &m_InFlightFences[curentFrame], VK_TRUE, UINT64_MAX);
 	
@@ -1531,8 +1508,6 @@ void Renderer::RenderFrame(float deltaTime)
 	vkResetFences(m_Device, 1, &m_InFlightFences[curentFrame]);
 	vkResetCommandBuffer(m_CommandBuffers[curentFrame], 0);
 	recordCommandBuffer(m_CommandBuffers[curentFrame], imageIndex);
-
-	//updateUniformBuffer(deltaTime, curentFrame);
 
 	VkPipelineStageFlags waitStages[] = { VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT };
 
@@ -1580,31 +1555,6 @@ void Renderer::UpdateCamera(const Camera& camera)
 	ubo.proj = camera.GetProjectionMatrix();
 
 	m_UniformBuffers[curentFrame].Write(&ubo, sizeof(ubo));
-}
-
-void Renderer::updateUniformBuffer(float deltaTime, uint32_t currentImage)
-{
-	UniformBufferObject ubo;
-	//ubo.model = glm::scale(glm::mat4(1.f), glm::vec3(1.0f));
-	ubo.model = glm::mat4(1.f);
-	//ubo.model = glm::rotate(glm::mat4(1.f), glm::radians(90.f) * deltaTime, glm::vec3(0.f, 0.f, 1.f));
-	ubo.view = glm::mat4(1.f);
-	//ubo.view = glm::lookAt(glm::vec3(2.0f, 2.0f, 2.0f), glm::vec3(0.f), glm::vec3(0.f, 0.f, 1.f));
-	//float aspectRacio = (float)m_ImageExtend.width / (float)m_ImageExtend.height;
-	//ubo.proj = glm::perspective(glm::radians(45.f), aspectRacio, 0.1f, 10.f);
-
-	ubo.proj = glm::orthoLH_ZO(-s_SimUBO.simulationWidth -1.f, s_SimUBO.simulationWidth +1.f, -s_SimUBO.simulationHeight -1.f, s_SimUBO.simulationHeight +1.f, 0.0f, 1.f);
-
-	m_UniformBuffers[currentImage].Write(&ubo, sizeof(ubo));
-}
-
-void Renderer::RunSimulationStep(ComputePipeline& siulationStep, float deltaTime)
-{
-	Begin(m_CommandBuffers[curentFrame]);
-
-	siulationStep.Dispatch(m_CommandBuffers[curentFrame], s_SimUBO.particlesCount / 256, &m_ComputeDescriptorSets[0], &deltaTime);
-
-	End(m_CommandBuffers[curentFrame]);
 }
 
 void Renderer::RunSortStep(ComputePipeline& sortStep, uint32_t size, uint32_t algorithm)

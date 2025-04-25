@@ -12,6 +12,9 @@ public:
 
 	void SetViewportSize(uint32_t width, uint32_t height);
 
+	float GetFOV() const { return m_FOV; }
+	void SetFOV(float FOV) { m_FOV = FOV; RecalculatePerspectiveMatrix(); }
+
 	const glm::vec3& GetPosition() const { return m_Position; }
 	void SetPosition(const glm::vec3& position) { m_Position = position; RecalculateViewMatrix(); }
 
@@ -39,4 +42,5 @@ private:
 	float m_FarClip = 1000.f;
 
 	float m_AspectRatio = 0.0f;
+	float m_FOV = 45.f;
 };

@@ -8,8 +8,8 @@ layout(set = 0, binding = 0) uniform UniformBufferObject
 } ubo;
 
 layout(location = 0) in vec3 Position;
-layout(location = 1) in vec3 Color;
-layout(location = 2) in vec2 UV;
+// layout(location = 1) in vec3 Color;
+layout(location = 1) in vec2 UV;
 layout(location = 3) in vec3 Center; //per instance
 layout(location = 4) in vec3 velocity; //per instance
 

@@ -1,6 +1,7 @@
 
 #include "Window.h"
 #include "Events/WindowEvent.h"
+#include "Events/KeyEvent.h"
 #include <iostream>
 
 Window::Window(uint32_t width, uint32_t height)
@@ -42,6 +43,21 @@ bool Window::Init()
 
 			WindowResizeEvent event(width, height);
 			data.callback(event);
+		});
+
+	glfwSetKeyCallback(m_Window, [](GLFWwindow* window, int key, int scancode, int action, int mods)
+		{
+			WindowData& data = *(WindowData*)glfwGetWindowUserPointer(window);
+
+			switch (action)
+			{
+				case GLFW_PRESS:
+				{
+					KeyPressedEvent event(key, false, mods);
+					data.callback(event);
+					break;
+				}
+			}
 		});
 
 	return false;

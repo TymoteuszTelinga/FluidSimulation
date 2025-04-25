@@ -31,14 +31,15 @@ public:
 
 	void recordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t imageIndex);
 	//temporary solution
-	//void UpdateStep(VkCommandBuffer commandBuffer, float deltaTime);
-	//void Update2Step(VkCommandBuffer commandBuffer, float deltaTime);
+
 	void Begin(VkCommandBuffer commandBuffer);
 	void End(VkCommandBuffer commandBuffer);
 
+	void SimulationStep(float deltaTime);
 	void RenderFrame(float deltaTime);
+
 	void UpdateCamera(const Camera& camera);
-	void updateUniformBuffer(float deltaTime, uint32_t currentImage);
+	//void updateUniformBuffer(float deltaTime, uint32_t currentImage);
 
 	//Fluid simlualtion steps
 	//1. Apply external forcess (gravity, mouse) + predict positions
@@ -47,7 +48,6 @@ public:
 	//3. Calculate preshure forses
 	//4. viscosity corections
 	//5. update positions + colisions resolve
-	void RunSimulationStep(ComputePipeline& siulationStep, float deltaTime);
 	void RunSortStep(ComputePipeline& sortStep, uint32_t size, uint32_t algorithm);
 
 	//Resize function
@@ -93,7 +93,7 @@ private:
 private:
 	const uint32_t MAX_IN_FLIGHT_FRAMES = 1;
 	//chek for suport of MSAA
-	const VkSampleCountFlagBits c_MSAACount = VK_SAMPLE_COUNT_4_BIT;
+	const VkSampleCountFlagBits c_MSAACount = VK_SAMPLE_COUNT_2_BIT;
 	//chek if phisical device suport specific format
 	const VkSurfaceFormatKHR c_SwapChainFormat =
 	{
