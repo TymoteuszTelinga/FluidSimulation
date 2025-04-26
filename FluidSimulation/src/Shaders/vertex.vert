@@ -18,7 +18,7 @@ layout(location = 1) out vec2 UVcord;
 
 void main()
 {
-	gl_Position = ubo.proj * ubo.view * ubo.model * vec4(Position + Center, 1.0f);
+	gl_Position = ubo.proj * ubo.view * (ubo.model * vec4(Position, 1.0f) + vec4(Center, 0.f));
     fragColor = velocity;
 	UVcord = UV;
 }

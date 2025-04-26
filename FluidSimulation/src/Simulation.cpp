@@ -5,8 +5,9 @@
 Simulation::Simulation(const ApplicationSpecification& spec)
 	:Application(spec)
 {
-	m_Camera = CreateScope<Camera>(Camera::ProjectionType::Orthographic);
-	m_Camera->SetViewportSize(32 + 2, (4.5f * 6.f) + 2);
+	m_Camera = CreateScope<Camera>(Camera::ProjectionType::Perspective);
+	//m_Camera->SetViewportSize(32 + 2, (4.5f * 6.f) + 2);
+	m_Camera->SetPosition(glm::vec3(0.f, 0.f, -40.f));
 }
 
 Simulation::~Simulation()
@@ -29,6 +30,10 @@ void Simulation::OnUpdate(float deltaTime)
 
 	m_Renderer->UpdateCamera(*m_Camera);
 	if (!bPoused)
+	{
+		m_Renderer->SimulationStep(deltaTime);
+	}
+	else if (Input::IsKeyDown(GLFW_KEY_RIGHT))
 	{
 		m_Renderer->SimulationStep(deltaTime);
 	}
@@ -60,6 +65,12 @@ bool Simulation::OnKeyPressed(KeyPressedEvent& e)
 	{
 		bPoused = !bPoused;
 		LOG(DEBUG, "Simulation state: %s", bPoused ? "Poused" : "played");
+	}
+
+	if (e.GetKeyCode() == GLFW_KEY_R)
+	{
+		m_Renderer->RestartSimulation();
+		bPoused = true;
 	}
 
 	return true;

@@ -2,12 +2,13 @@
 const float PI = 3.14159265358979f;
 
 //Density kernel
+//SpikyKernelPow2
 float SmoothingKernel(float radius, float dst)
 {
 	if ( dst <= radius)
     {
         float v = radius - dst;
-	    float factor =  6.f / (PI * pow(radius, 4));
+	    float factor =  15.f / (2.f * PI * pow(radius, 5));
 	    return v * v * factor;
     }
     return 0.0f;
@@ -15,12 +16,13 @@ float SmoothingKernel(float radius, float dst)
 }
 
 //Density gradient Kernel
+//DerivativeSpikyPow2
 float SmoothingKernelDerivative(float radius, float dst)
 {
 	if ( dst <= radius)
     {
         float v = radius - dst;
-        float scale = 12.f / (PI * pow(radius, 4));
+        float scale = 15.f / (PI * pow(radius, 5));
         return -v * scale;
     }
     return 0.f;
@@ -28,12 +30,13 @@ float SmoothingKernelDerivative(float radius, float dst)
 }
 
 //Viscosity kernel
+//SmoothingKernelPoly6
 float SmoothingKernel6(float radius, float dst)
 {
 	if (dst < radius)
 	{
 		float v = radius * radius - dst * dst;
-        float scale = 4.f / (PI * pow(radius, 8));
+        float scale = 315.f / (64.f * PI * pow(radius, 9));
 		return v * v * v * scale;
 	}
 	return 0;

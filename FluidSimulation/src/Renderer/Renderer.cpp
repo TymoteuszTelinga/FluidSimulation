@@ -64,10 +64,10 @@ static struct Vertex
 
 static struct Instance
 {
-	alignas(8) glm::vec2 position;
+	alignas(16) glm::vec3 position;
 	alignas(4)	float density;
-	alignas(8) glm::vec2 velocity;
-	alignas(8) glm::vec2 predictedPosition;
+	alignas(16) glm::vec3 velocity;
+	alignas(16) glm::vec3 predictedPosition;
 
 	static VkVertexInputBindingDescription GetBindingDescription()
 	{
@@ -91,7 +91,7 @@ static struct Instance
 			{
 				.location = 3,
 				.binding = 1,
-				.format = VK_FORMAT_R32G32_SFLOAT,
+				.format = VK_FORMAT_R32G32B32_SFLOAT,
 				.offset = offsetof(Instance, position)
 			};
 
@@ -103,7 +103,7 @@ static struct Instance
 			{
 				.location = 4,
 				.binding = 1,
-				.format = VK_FORMAT_R32G32_SFLOAT,
+				.format = VK_FORMAT_R32G32B32_SFLOAT,
 				.offset = offsetof(Instance, velocity)
 			};
 
@@ -124,6 +124,34 @@ static const std::vector<Vertex> vertices =
 	{{-PS,  PS, 0.5f}, {0.f, 0.f}},
 };
 
+static const std::vector<Vertex> cubeVert =
+{
+	{{ 1.f,  1.f, -1.f}, {0.f, 0.f}},
+	{{ 1.f, -1.f, -1.f}, {0.f, 0.f}},
+	{{ 1.f,  1.f,  1.f}, {0.f, 0.f}},
+	{{ 1.f, -1.f,  1.f}, {0.f, 0.f}},
+	{{-1.f,  1.f, -1.f}, {0.f, 0.f}},
+	{{-1.f, -1.f, -1.f}, {0.f, 0.f}},
+	{{-1.f,  1.f,  1.f}, {0.f, 0.f}},
+	{{-1.f, -1.f,  1.f}, {0.f, 0.f}},
+};
+
+static const std::vector<uint16_t> cubveInd =
+{
+	4, 2, 0,
+	2, 7, 3,
+	6, 5, 7,
+	1, 7, 5,
+	0, 3, 1,
+	4, 1, 5,
+	4, 6, 2,
+	2, 6, 7,
+	6, 4, 5,
+	1, 3, 7,
+	0, 2, 3,
+	4, 0, 1,
+};
+
 static const std::vector<uint16_t> indices = 
 {
 	0, 1, 2, 2, 3, 0
@@ -140,13 +168,14 @@ static struct UniformBufferObject
 
 static struct SimulationUBO
 {
-	float simulationHeight = 4.5f / 2.f * 6.f;//in use
-	float simulationWidth = 8.f / 2.f * 4.f;//in use
+	float simulationHeight = 32.f / 2.f;//in use
+	float simulationWidth = 26.f / 2.f;//in use
+	float simulationDepth = 10.f/ 2.f;//in use
 	float collisionDamping = 0.8f;//in use
 	float kernelRadius = 0.3;//in use
-	float targetDensity = 55.75f;//in use
-	float pressureMultiplier = 500.5f;//in use
-	uint32_t particlesCount = 256 * (128);//in use (256 * n) (128 + 64 + 16 + 8)
+	float targetDensity = 105.75f;//in use
+	float pressureMultiplier = 300.5f;//in use
+	uint32_t particlesCount = 256 * (128 + 16);//in use (256 * n) (128 + 64 + 16 + 8)
 } s_SimUBO;
 
 Renderer::~Renderer()
@@ -224,14 +253,27 @@ void Renderer::Init(const std::string& applicationName, const Scope<Window>& win
 	/*float x = -7.0f;
 	float y = -4.0f;*/
 	s_RenderingUBO.proj = glm::orthoLH_ZO(-s_SimUBO.simulationWidth - 1.f, s_SimUBO.simulationWidth + 1.f, -s_SimUBO.simulationHeight - 1.f, s_SimUBO.simulationHeight + 1.f, 0.0f, 1.f);
+
+	float minZ = 0.f;
+	float maxZ = 0.f;
 	for (size_t i = 0; i < s_SimUBO.particlesCount; i++)
 	{
 		float x = (float)rand() / RAND_MAX;
 		float y = (float)rand() / RAND_MAX;
+		float z = (float)rand() / RAND_MAX;
 		x = x * 2.f - 1.f;
 		y = y * 2.f - 1.f;
-		x *= s_SimUBO.simulationWidth;
-		y *= s_SimUBO.simulationHeight;
+		z = z * 2.f - 1.f;
+		x *= s_SimUBO.simulationDepth-1.f;//s_SimUBO.simulationWidth;
+		y *= s_SimUBO.simulationDepth-1.f;//s_SimUBO.simulationHeight;
+		z *= s_SimUBO.simulationDepth-1.f;
+
+		minZ = std::min(z, minZ);
+		maxZ = std::max(z, maxZ);
+
+		x += 0.f;
+		y += 10.f;
+		z += 0.f;
 		//y = 0.f;
 		/*x += 0.1f;
 		if (x >= 7.0f)
@@ -244,10 +286,10 @@ void Renderer::Init(const std::string& applicationName, const Scope<Window>& win
 
 
 		Instance particle;
-		particle.position = glm::vec2(x, y);
+		particle.position = glm::vec3(x, y, z);
 		particle.predictedPosition = particle.position;
 		particle.density = 0.0f;
-		particle.velocity = glm::vec2(0.f,0.f);
+		particle.velocity = glm::vec3(0.f,0.f,0.f);
 		instances.push_back(particle);
 	}
 
@@ -789,8 +831,8 @@ void Renderer::CreateGraphicsPipeline()
 		.depthClampEnable = VK_FALSE,
 		.rasterizerDiscardEnable = VK_FALSE,
 		.polygonMode = VK_POLYGON_MODE_FILL,
-		.cullMode =  VK_CULL_MODE_BACK_BIT,//VK_CULL_MODE_NONE, //
-		.frontFace = VK_FRONT_FACE_CLOCKWISE, //VK_FRONT_FACE_COUNTER_CLOCKWISE,
+		.cullMode =  VK_CULL_MODE_BACK_BIT,// VK_CULL_MODE_NONE, //
+		.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE,
 		.depthBiasEnable = VK_FALSE,
 		.depthBiasConstantFactor = 0.f,
 		.depthBiasClamp = 0.f,
@@ -843,7 +885,7 @@ void Renderer::CreateGraphicsPipeline()
 		.flags = 0,
 		.depthTestEnable = VK_TRUE,
 		.depthWriteEnable = VK_TRUE,
-		.depthCompareOp = VK_COMPARE_OP_LESS_OR_EQUAL,
+		.depthCompareOp = VK_COMPARE_OP_LESS,//VK_COMPARE_OP_LESS_OR_EQUAL,
 		.depthBoundsTestEnable = VK_FALSE,
 		.stencilTestEnable = VK_FALSE,
 		.front = {},
@@ -1010,7 +1052,7 @@ void Renderer::CreateComandPool()
 
 void Renderer::CreateVertexBuffer()
 {
-	VkDeviceSize bufferSize = sizeof(Vertex) * vertices.size();
+	VkDeviceSize bufferSize = sizeof(Vertex) * cubeVert.size();
 
 	BufferSpecification vertexSpec =
 	{
@@ -1029,7 +1071,7 @@ void Renderer::CreateVertexBuffer()
 		.properties = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
 	};
 	Buffer stagingBuffer;
-	stagingBuffer.Init(stagingSpec, vertices.data());
+	stagingBuffer.Init(stagingSpec, cubeVert.data());
 
 	CopyBuffer(stagingBuffer.GetHandle(), m_VertexBuffer.GetHandle(), bufferSize);
 
@@ -1038,7 +1080,7 @@ void Renderer::CreateVertexBuffer()
 
 void Renderer::CreateIndexBuffer()
 {
-	VkDeviceSize bufferSize = sizeof(uint16_t) * indices.size();
+	VkDeviceSize bufferSize = sizeof(uint16_t) * cubveInd.size();
 
 	BufferSpecification indexSpec =
 	{
@@ -1057,7 +1099,7 @@ void Renderer::CreateIndexBuffer()
 		.properties = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
 	};
 	Buffer stagingBuffer;
-	stagingBuffer.Init(stagingSpec, indices.data());
+	stagingBuffer.Init(stagingSpec, cubveInd.data());
 
 	CopyBuffer(stagingBuffer.GetHandle(), m_IndexBuffer.GetHandle(), bufferSize);
 
@@ -1399,7 +1441,7 @@ void Renderer::recordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t image
 
 	//Draw
 	//vkCmdDraw(commandBuffer, vertices.size(), 1, 0, 0);
-	vkCmdDrawIndexed(commandBuffer, indices.size(), s_SimUBO.particlesCount, 0, 0, 0);
+	vkCmdDrawIndexed(commandBuffer, cubveInd.size(), s_SimUBO.particlesCount, 0, 0, 0);//s_SimUBO.particlesCount
 
 	vkCmdEndRenderPass(commandBuffer);
 	vkEndCommandBuffer(commandBuffer);
@@ -1492,6 +1534,25 @@ void Renderer::SimulationStep(float deltaTime)
 	End(m_CommandBuffers[curentFrame]);
 }
 
+void Renderer::RestartSimulation()
+{
+	VkDeviceSize bufferSize = sizeof(Instance) * instances.size();
+
+	BufferSpecification stagingSpec =
+	{
+		.device = {m_Device, m_PhysicalDevice.PhysicalDeviceHandle},
+		.size = bufferSize,
+		.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+		.properties = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
+	};
+	Buffer stagingBuffer;
+	stagingBuffer.Init(stagingSpec, instances.data());
+
+	CopyBuffer(stagingBuffer.GetHandle(), m_InstanceBuffer.GetHandle(), bufferSize);
+
+	stagingBuffer.Free();
+}
+
 void Renderer::RenderFrame(float deltaTime)
 {
 	//drawing
@@ -1550,7 +1611,7 @@ void Renderer::RenderFrame(float deltaTime)
 void Renderer::UpdateCamera(const Camera& camera)
 {
 	UniformBufferObject ubo;
-	ubo.model = glm::mat4(1.f);
+	ubo.model = glm::scale(glm::mat4(1.f), glm::vec3(0.10));
 	ubo.view = camera.GetViewMatrix();
 	ubo.proj = camera.GetProjectionMatrix();
 

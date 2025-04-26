@@ -36,6 +36,7 @@ public:
 	void End(VkCommandBuffer commandBuffer);
 
 	void SimulationStep(float deltaTime);
+	void RestartSimulation();
 	void RenderFrame(float deltaTime);
 
 	void UpdateCamera(const Camera& camera);

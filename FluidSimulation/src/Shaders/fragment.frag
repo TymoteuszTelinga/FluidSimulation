@@ -53,5 +53,6 @@ void main()
     const float MaxSpeed = 3.0;
     speed = clamp(speed / MaxSpeed, 0.0, 1.0);
 
+    alpha = 1.0f;
     outColor = vec4(gradient(speed), alpha);
 }
