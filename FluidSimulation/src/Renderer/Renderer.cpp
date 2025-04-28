@@ -164,6 +164,7 @@ static struct UniformBufferObject
 	alignas(16) glm::mat4 model = glm::mat4(1.f);
 	alignas(16) glm::mat4 view  = glm::mat4(1.f);
 	alignas(16) glm::mat4 proj  = glm::mat4(1.f);
+	alignas(16) glm::vec3 cameraPos = glm::vec3(0.f);
 } s_RenderingUBO;
 
 static struct SimulationUBO
@@ -200,6 +201,7 @@ Renderer::~Renderer()
 	m_GraphicsSetLayout.Free();
 	m_SimulationSetLayout.Free();
 	m_SortSetLayout.Free();
+	m_RayTracingLayout.Free();
 
 	m_VertexBuffer.Free();
 	m_IndexBuffer.Free();
@@ -224,6 +226,8 @@ Renderer::~Renderer()
 	m_SortStep.Free();
 	m_OffsetStep.Free();
 
+	m_RayTracing.Free();
+
 	vkDestroyPipeline(m_Device, m_GraphicsPipeline, nullptr);
 	vkDestroyPipelineLayout(m_Device, m_PipelineLayout, nullptr);
 
@@ -233,6 +237,8 @@ Renderer::~Renderer()
 
 	m_MSAAImage.Free();
 	m_DepthImage.Free();
+	//m_SurfaceImage.Free();
+	m_ScreenImage.Free();
 
 	vkDestroyDevice(m_Device, nullptr);
 
@@ -347,6 +353,8 @@ void Renderer::Init(const std::string& applicationName, const Scope<Window>& win
 	CreateDescriptorSets();
 	CreateComputeDescriptorSets();
 	CreateSortDescriptorSets();
+
+	InitRayTracing();
 
 	CreateCommandBuffer();
 	CreateSyncObjects();
@@ -561,6 +569,7 @@ void Renderer::CreateSwapChain()
 	m_ImageExtend = SurfaceCapabilities.currentExtent;
 
 	LOG(WARNING, "SwapChain resize %u | %u", m_ImageExtend.width, m_ImageExtend.height);
+
 
 	VkSwapchainCreateInfoKHR SwapChainCreateInfo =
 	{
@@ -1270,6 +1279,43 @@ void Renderer::CreateSortDescriptorSets()
 	m_SortDescriptorSets = m_SortSetLayout.CreateSets(m_DescriptorPool, MAX_IN_FLIGHT_FRAMES, { m_SpatialBuffer, m_LookUpBuffer }, {});
 }
 
+void Renderer::InitRayTracing()
+{
+	ImageSpecification ScreenSpec =
+	{
+		.device = {m_Device, m_PhysicalDevice.PhysicalDeviceHandle},
+		.type = VK_IMAGE_TYPE_2D,
+		.size = {m_ImageExtend.width, m_ImageExtend.height, 1},
+		.format = VK_FORMAT_R32G32B32A32_SFLOAT,
+		.usage = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_SRC_BIT,
+		.aspectFlags = VK_IMAGE_ASPECT_COLOR_BIT,
+		.samples = VK_SAMPLE_COUNT_1_BIT,
+		.tiling = VK_IMAGE_TILING_OPTIMAL
+	};
+	m_ScreenImage.Init(ScreenSpec);
+
+	LayoutSpecification RayTracingLayoutSpec =
+	{
+		.device = {m_Device, m_PhysicalDevice.PhysicalDeviceHandle},
+		.stage = VK_SHADER_STAGE_COMPUTE_BIT,
+		.types = {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER}
+		//image, particles, spacial, lookup, cameraUBO
+	};
+	m_RayTracingLayout.Init(RayTracingLayoutSpec);
+
+	ComputePipelineSpecification RayTracingSpec =
+	{
+		.device = {m_Device, m_PhysicalDevice.PhysicalDeviceHandle},
+		.shaderPath = "src\\Shaders\\Rendering\\basic.spv",
+		.entryPoint = "main",
+		.descriptorLayout = m_RayTracingLayout.GetHandle(),
+		.constantsSize = 0
+	};
+	m_RayTracing.Init(RayTracingSpec);
+
+	m_RayTracingSet = m_RayTracingLayout.CreateSets(m_DescriptorPool, 1, {m_InstanceBuffer, m_SpatialBuffer, m_LookUpBuffer, m_UniformBuffers[0]}, {m_ScreenImage})[0];
+}
+
 void Renderer::CreateCommandBuffer()
 {
 	m_CommandBuffers.resize(MAX_IN_FLIGHT_FRAMES);
@@ -1561,6 +1607,26 @@ void Renderer::RestartSimulation()
 
 void Renderer::RenderFrame(float deltaTime)
 {
+	/*
+	*/
+	Begin(m_CommandBuffers[curentFrame]);
+
+	Utilites::TransferImageDetails barrier =
+	{
+		.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+		.newLayout = VK_IMAGE_LAYOUT_GENERAL,
+		.srcAccess = 0,
+		.dstAccess = VK_ACCESS_SHADER_WRITE_BIT,
+		.srcMask = VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+		.dstMask = VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT
+	};
+	Utilites::CmdTransferImage(m_CommandBuffers[curentFrame], m_ScreenImage.GetImageHandle(), barrier);
+
+	m_RayTracing.Dispatch(m_CommandBuffers[curentFrame], m_ImageExtend.width / 8, m_ImageExtend.height / 8, &m_RayTracingSet);
+
+	End(m_CommandBuffers[curentFrame]);
+
+
 	//drawing
 	vkWaitForFences(m_Device, 1, &m_InFlightFences[curentFrame], VK_TRUE, UINT64_MAX);
 	
@@ -1574,24 +1640,72 @@ void Renderer::RenderFrame(float deltaTime)
 
 	vkResetFences(m_Device, 1, &m_InFlightFences[curentFrame]);
 	vkResetCommandBuffer(m_CommandBuffers[curentFrame], 0);
-	recordCommandBuffer(m_CommandBuffers[curentFrame], imageIndex);
-
-	VkPipelineStageFlags waitStages[] = { VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT };
-
-	VkSubmitInfo submitInfo =
+	//recordCommandBuffer(m_CommandBuffers[curentFrame], imageIndex);
+	
+	//copy pass
+	VkCommandBufferBeginInfo beginBufferInfo =
 	{
-		.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
+		.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
 		.pNext = nullptr,
-		.waitSemaphoreCount = 1,
-		.pWaitSemaphores = &m_ImageAvailableSemaphores[curentFrame],
-		.pWaitDstStageMask = waitStages,
-		.commandBufferCount = 1,
-		.pCommandBuffers = &m_CommandBuffers[curentFrame],
-		.signalSemaphoreCount = 1,
-		.pSignalSemaphores = &m_RenderFinishedSemaphores[curentFrame]
+		.flags = 0,
+		.pInheritanceInfo = nullptr
 	};
 
-	vkQueueSubmit(m_Queue, 1, &submitInfo, m_InFlightFences[curentFrame]);
+	vkBeginCommandBuffer(m_CommandBuffers[curentFrame], &beginBufferInfo);
+
+	// 4. Prepare compute image for transfer
+	VkImageMemoryBarrier prepareForTransferBarrier =
+	{
+		.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+		.pNext = nullptr,
+		.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT,
+		.dstAccessMask = VK_ACCESS_TRANSFER_READ_BIT,
+		.oldLayout = VK_IMAGE_LAYOUT_GENERAL,
+		.newLayout = VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL,
+		.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+		.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+		.image = m_ScreenImage.GetImageHandle(),
+		.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1},
+	};
+
+	// 5. Transition swapchain image for receiving the copy
+	VkImageMemoryBarrier prepareSwapchainBarrier =
+	{
+		.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+		.pNext = nullptr,
+		.srcAccessMask = 0,
+		.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT,
+		.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+		.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+		.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+		.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+		.image = m_Images[imageIndex],
+		.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 },
+	};
+
+	// Combine both barriers
+	VkImageMemoryBarrier barriers[] = { prepareForTransferBarrier, prepareSwapchainBarrier };
+
+	vkCmdPipelineBarrier(m_CommandBuffers[curentFrame], VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, 0, 0, nullptr, 0, nullptr, 2, barriers);
+
+	// 6. Execute the image copy operation
+	VkExtent3D dstExtend = { m_ImageExtend.width, m_ImageExtend.height, 1 };
+	Utilites::CmdBlitImage(m_CommandBuffers[curentFrame], m_ScreenImage.GetImageHandle(), m_ScreenImage.GetExtent(), m_Images[imageIndex], dstExtend);
+
+	// 7. Transition swapchain image to present layout
+	Utilites::TransferImageDetails presentBarrier =
+	{
+		.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+		.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+		.srcAccess = VK_ACCESS_TRANSFER_WRITE_BIT,
+		.dstAccess = VK_ACCESS_MEMORY_READ_BIT,
+		.srcMask = VK_PIPELINE_STAGE_TRANSFER_BIT,
+		.dstMask = VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT
+	};
+	Utilites::CmdTransferImage(m_CommandBuffers[curentFrame], m_Images[imageIndex], presentBarrier);
+
+	VkPipelineStageFlags waitStages[] = { VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT };
+	End(m_CommandBuffers[curentFrame], waitStages, {m_ImageAvailableSemaphores[curentFrame]}, {m_RenderFinishedSemaphores[curentFrame]});
 
 	VkPresentInfoKHR presentInfo =
 	{

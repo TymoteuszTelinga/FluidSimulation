@@ -1,0 +1,223 @@
+#version 460 core
+#extension GL_ARB_shading_language_include : require
+#include "../Simulation/SpatialHash.glsl"
+
+layout(binding = 0, rgba32f) uniform writeonly image2D outputImage;
+
+struct Particle
+{
+	vec3 position;
+	float density;
+	vec3 velocity;
+    vec3 predictedPosition;
+};
+
+layout(std140, binding = 1) buffer ParticleSSBO
+{
+	Particle particles[];
+};
+
+layout(std430, binding = 2) buffer SpatialIndices
+{
+	uvec2 indexes[];//key, particle index;
+};
+
+layout(std430, binding = 3) buffer SpatialLookUp
+{
+	uint LookUp[];
+};
+
+layout(binding = 4) uniform UniformBufferObject
+{
+	mat4 model;
+	mat4 view;
+	mat4 proj;
+    vec3 cameraPos;
+} ubo;
+
+//--------------Defines--------------
+const float FLT_MAX = 3.402823466e+38;
+
+struct Ray 
+{
+    vec3 origin;
+    vec3 direction;
+};
+
+struct HitInfo 
+{
+    bool didHit;
+    float distance;
+    vec3 hitPoint;
+    vec3 normal;
+};
+
+//--------------HelperFunctions--------------
+bool intersectBox(Ray ray, out float d_min, out float d_max) 
+{
+    // Calculate intersection with each pair of planes along each axis
+    vec3 invDir = 1.0 / ray.direction;
+    vec3 d1 = (-vec3(13.f, 16.f, 5.f) - ray.origin) * invDir;
+    vec3 d2 = ( vec3(13.f, 16.f, 5.f) - ray.origin) * invDir;
+    
+    // Find closest and furthest intersection for each axis
+    vec3 tmin = min(d1, d2);
+    vec3 tmax = max(d1, d2);
+    
+    // Find the largest tmin and smallest tmax
+    d_min = max(max(tmin.x, tmin.y), tmin.z);
+    d_max = min(min(tmax.x, tmax.y), tmax.z);
+    
+    // Ray intersects box if t_max >= t_min and t_max > 0
+    return d_max >= d_min && d_max > 0.0;
+}
+
+HitInfo intersectSphere(Ray ray, vec3 sphere)
+{
+    HitInfo hitInfo;
+    hitInfo.didHit = false;
+    //trace ray agist sphere with radius 1.f;
+    vec3 oc = ray.origin - sphere;
+    float a = dot(ray.direction, ray.direction);
+    float b = 2.0 * dot(oc, ray.direction);
+    float c = dot(oc, oc) - 0.3f * 0.3f;
+    float discriminant = b * b - 4.0 * a * c;
+    
+    if (discriminant > 0.0) {
+        float t = (-b - sqrt(discriminant)) / (2.0 * a);
+        
+        if (t > 0.001) {
+            hitInfo.didHit = true;
+            hitInfo.distance = t;
+            hitInfo.hitPoint = ray.origin + t * ray.direction;
+            hitInfo.normal = normalize(hitInfo.hitPoint - vec3(sphere));
+            return hitInfo;
+        }
+    }
+    
+    return hitInfo;
+}
+
+// Simple sky color
+vec3 getSkyColor(Ray ray) 
+{
+    vec3 unitDirection = normalize(ray.direction);
+    float t = 0.5 * (unitDirection.y + 1.0);
+    return (1.0 - t) * vec3(1.0, 1.0, 1.0) + t * vec3(0.5, 0.7, 1.0) * 0.05f;
+}
+
+HitInfo TraceRay(Ray ray)
+{
+    HitInfo closestHit;
+    closestHit.didHit = false;
+    closestHit.distance = FLT_MAX;
+
+    //trace ray agist sceneBox
+    float dMin, dMax;
+    if(!intersectBox(ray, dMin, dMax))
+    {
+        closestHit.didHit = true;
+        closestHit.normal = getSkyColor(ray);
+        return closestHit;
+    }
+
+    //ray hit simulation space
+
+    Ray dummyRay;
+    dummyRay.origin = ray.origin + ray.direction * dMin;
+    dummyRay.direction = ray.direction;
+
+
+    for (int s = 0; s < 200; s++)
+    {
+        ivec3 rayCell = GetCell3D(dummyRay.origin, 0.3);
+
+        for (int i = 0; i < 27; i++)
+        {
+            const uint hash = HashCell3D(rayCell + offsets3D[i]);// 
+            const uint key = KeyFromHash(hash, 256*(128));
+            uint spatialIndex = LookUp[key];
+
+            while (spatialIndex < 256*(128))
+            {
+                uvec2 indexData = indexes[spatialIndex];
+                spatialIndex++;
+
+                if (indexData.r != key) break;
+
+                uint particleID = indexData.g;
+
+                HitInfo hit = intersectSphere(ray, particles[particleID].position);
+                if (hit.didHit && hit.distance < closestHit.distance)
+                {
+                    closestHit = hit;
+                }
+            }
+        }
+
+        // if we hit patricle rerturn
+        if (closestHit.didHit)
+        {
+            // closestHit.normal = vec3(s/200.f, 0.f, 0.f);
+            return closestHit;
+        }
+
+        //ray marching
+        dummyRay.origin += dummyRay.direction * 0.6;
+
+        if (abs(dummyRay.origin.x) > 13.f || abs(dummyRay.origin.y) > 17.f || abs(dummyRay.origin.z) > 6.f)
+        {
+            // closestHit.didHit = false;
+            // closestHit.normal = vec3(s/200.f, 0.f, 0.f);
+            return closestHit;
+        }
+
+    }
+
+
+
+    // for (int i=0; i < 256 * 16; i++)
+    // {
+    //     HitInfo hit = intersectSphere(dummyRay, particles[i].position);
+    //     if (hit.didHit && hit.distance < closestHit.distance)
+    //     {
+    //         closestHit = hit;
+    //     }
+    // }
+
+    if (!closestHit.didHit)
+    {
+        closestHit.didHit = true;
+        closestHit.normal = getSkyColor(ray);
+    }
+
+    return closestHit;
+}
+
+//--------------EntryPoints--------------
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
+void main()
+{
+	ivec2 id = ivec2(gl_GlobalInvocationID.xy);
+
+    vec2 uv = id / vec2(imageSize(outputImage).xy);
+    uv = uv * 2.0f - 1.0f; // pixel cord from -1 to 1;
+    
+    // vec4 color = vec4( abs(uv.x), abs(uv.y), 0.5, 1.0 );
+
+    vec4 target = inverse(ubo.proj) * vec4(uv, -1.f, 1.f);
+
+    Ray ray;
+    ray.origin = ubo.cameraPos;
+    ray.direction = vec3(inverse(ubo.view) * vec4(normalize(vec3(target) / target.w), 0));
+
+    HitInfo hit = TraceRay(ray);
+
+    vec3 outColor = vec3(0.f);
+    if (hit.didHit)
+    {
+        outColor = hit.normal;
+    }
+    
+    imageStore(outputImage, id, vec4(outColor, 1.f));
+}

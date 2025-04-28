@@ -82,6 +82,8 @@ private:
 	void CreateComputeDescriptorSets();
 	void CreateSortDescriptorSets();
 
+	void InitRayTracing();
+
 	void CreateCommandBuffer();
 	void CreateSyncObjects();
 
@@ -135,14 +137,6 @@ private:
 
 	VkDescriptorPool m_DescriptorPool = VK_NULL_HANDLE;
 
-	//Graphics
-	//VkDescriptorSetLayout m_DescriptorSetLayout = VK_NULL_HANDLE;
-	DescriptorLayout m_GraphicsSetLayout;
-	std::vector<VkDescriptorSet> m_DescriptorSets;
-
-	VkPipelineLayout m_PipelineLayout = VK_NULL_HANDLE;
-	VkPipeline m_GraphicsPipeline = VK_NULL_HANDLE;
-
 	//Compute
 	DescriptorLayout m_SimulationSetLayout;
 	std::vector<VkDescriptorSet> m_ComputeDescriptorSets;
@@ -161,6 +155,22 @@ private:
 	ComputePipeline m_SortStep;
 	ComputePipeline m_OffsetStep;
 
+	//Graphics
+	Image m_ScreenImage;
+	DescriptorLayout m_RayTracingLayout;
+	VkDescriptorSet m_RayTracingSet;
+
+	ComputePipeline m_RayTracing;
+	//Image m_SurfaceImage;
+	//ComputePipeline m_SurfaceStep;
+	//ComputePipeline m_MarchinCubeStep;
+
+	//VkDescriptorSetLayout m_DescriptorSetLayout = VK_NULL_HANDLE;
+	DescriptorLayout m_GraphicsSetLayout;
+	std::vector<VkDescriptorSet> m_DescriptorSets;
+
+	VkPipelineLayout m_PipelineLayout = VK_NULL_HANDLE;
+	VkPipeline m_GraphicsPipeline = VK_NULL_HANDLE;
 
 	
 	VkCommandPool m_CommandPool = VK_NULL_HANDLE;
