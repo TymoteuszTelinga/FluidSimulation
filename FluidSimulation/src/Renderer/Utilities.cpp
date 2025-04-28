@@ -1,6 +1,7 @@
 #include "Utilities.h"
 
 #include "Core/Log.h"
+#include "Image.h"
 #include <fstream>
 
 static std::vector<char> readFile(const std::filesystem::path& filepath)
@@ -83,4 +84,43 @@ VkShaderModule Utilites::CreateShaderModule(VkDevice device, const std::filesyst
 	VkShaderModule shaderModule;
 	vkCreateShaderModule(device, &createInfo, nullptr, &shaderModule);
 	return shaderModule;
+}
+
+void Utilites::CmdTransferImage(VkCommandBuffer commandBuffer, VkImage image, const TransferImageDetails& transferDetails)
+{
+	VkImageMemoryBarrier imageBarrier =
+	{
+		.sType = VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER,
+		.pNext = nullptr,
+		.srcAccessMask = transferDetails.srcAccess,
+		.dstAccessMask = transferDetails.dstAccess,
+		.oldLayout = transferDetails.oldLayout,
+		.newLayout = transferDetails.newLayout,
+		.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+		.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
+		.image = image,
+		.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 },
+	};
+
+	vkCmdPipelineBarrier(commandBuffer, transferDetails.srcMask, transferDetails.dstMask, 0, 0, nullptr, 0, nullptr, 1, &imageBarrier);
+}
+
+void Utilites::CmdBlitImage(VkCommandBuffer commandBuffer, VkImage srcImage, VkExtent3D srcExtend, VkImage dstImage, VkExtent3D dstExtend)
+{
+
+	VkImageBlit blitRegion = {};
+	blitRegion.srcSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+	blitRegion.srcSubresource.mipLevel = 0;
+	blitRegion.srcSubresource.baseArrayLayer = 0;
+	blitRegion.srcSubresource.layerCount = 1;
+	blitRegion.srcOffsets[0] = { 0, 0, 0 };
+	blitRegion.srcOffsets[1] = { (int)srcExtend.width, (int)srcExtend.height, (int)srcExtend.depth };
+	blitRegion.dstSubresource.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+	blitRegion.dstSubresource.mipLevel = 0;
+	blitRegion.dstSubresource.baseArrayLayer = 0;
+	blitRegion.dstSubresource.layerCount = 1;
+	blitRegion.dstOffsets[0] = { 0, 0, 0 };
+	blitRegion.dstOffsets[1] = { (int)dstExtend.width, (int)dstExtend.height, (int)dstExtend.depth };
+
+	vkCmdBlitImage(commandBuffer, srcImage, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, dstImage, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &blitRegion, VK_FILTER_LINEAR);
 }

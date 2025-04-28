@@ -1,5 +1,6 @@
 #include "DescriptorLayout.h"
 #include "Buffer.h"
+#include "Image.h"
 
 void DescriptorLayout::Init(const LayoutSpecification& spec)
 {
@@ -33,7 +34,17 @@ void DescriptorLayout::Free()
 	vkDestroyDescriptorSetLayout(m_Spec.device, m_Layout, nullptr);
 }
 
-std::vector<VkDescriptorSet> DescriptorLayout::CreateSets(VkDescriptorPool pool, const uint32_t count, const std::vector<Buffer>& buffers)
+bool IsDescriptorTypeBuffer(const VkDescriptorType type)
+{
+	if (type == VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER || type == VK_DESCRIPTOR_TYPE_STORAGE_BUFFER)
+	{
+		return true;
+	}
+
+	return false;
+}
+
+std::vector<VkDescriptorSet> DescriptorLayout::CreateSets(VkDescriptorPool pool, const uint32_t count, const std::vector<Buffer>& buffers, const std::vector<Image>& images)
 {
 	std::vector<VkDescriptorSetLayout> layouts(count, m_Layout);
 
@@ -52,15 +63,27 @@ std::vector<VkDescriptorSet> DescriptorLayout::CreateSets(VkDescriptorPool pool,
 
 
 	std::vector<VkDescriptorBufferInfo> bufferInfo(buffers.size());
-	std::vector<VkWriteDescriptorSet> writes(buffers.size());
+	for (size_t i = 0; i < bufferInfo.size(); i++)
+	{
+		bufferInfo[i].buffer = buffers[i].GetHandle();
+		bufferInfo[i].offset = 0;
+		bufferInfo[i].range = buffers[i].GetSize();
+	}
+	std::vector<VkDescriptorImageInfo> imageInfo(images.size());
+	for (size_t i = 0; i < imageInfo.size(); i++)
+	{
+		imageInfo[i].imageLayout = VK_IMAGE_LAYOUT_GENERAL;
+		imageInfo[i].imageView = images[i].GetImageView();
+	}
+
+	std::vector<VkWriteDescriptorSet> writes(m_Spec.types.size());
 	for (size_t s = 0; s < count; s++)
 	{
-		for (size_t i = 0; i < buffers.size(); i++)
+		uint32_t CurrentBufferToBind = 0;
+		uint32_t CurrentImageToBind = 0;
+		for (size_t i = 0; i < m_Spec.types.size(); i++)
 		{
-			//info
-			bufferInfo[i].buffer = buffers[i].GetHandle();
-			bufferInfo[i].offset = 0;
-			bufferInfo[i].range  = buffers[i].GetSize();
+			bool isBufferType = IsDescriptorTypeBuffer(m_Spec.types[i]);
 
 			//write
 			writes[i].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
@@ -70,9 +93,19 @@ std::vector<VkDescriptorSet> DescriptorLayout::CreateSets(VkDescriptorPool pool,
 			writes[i].dstArrayElement = 0;
 			writes[i].descriptorCount = 1;
 			writes[i].descriptorType = m_Spec.types[i];
-			writes[i].pImageInfo = nullptr;
-			writes[i].pBufferInfo = &bufferInfo[i];
+			writes[i].pImageInfo = !isBufferType ? &imageInfo[CurrentImageToBind] : nullptr;
+			writes[i].pBufferInfo = isBufferType ? &bufferInfo[CurrentBufferToBind] :  nullptr;
 			writes[i].pTexelBufferView = nullptr;
+
+			if (isBufferType)
+			{
+				CurrentBufferToBind++;
+			}
+			else
+			{
+				CurrentImageToBind++;
+			}
+
 		}
 
 		vkUpdateDescriptorSets(m_Spec.device, writes.size(), writes.data(), 0, nullptr);

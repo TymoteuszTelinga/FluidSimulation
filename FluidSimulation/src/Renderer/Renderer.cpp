@@ -175,7 +175,7 @@ static struct SimulationUBO
 	float kernelRadius = 0.3;//in use
 	float targetDensity = 105.75f;//in use
 	float pressureMultiplier = 300.5f;//in use
-	uint32_t particlesCount = 256 * (128 + 16);//in use (256 * n) (128 + 64 + 16 + 8)
+	uint32_t particlesCount = 256 * (128);//in use (256 * n) (128 + 64 + 16 + 8)
 } s_SimUBO;
 
 Renderer::~Renderer()
@@ -264,9 +264,9 @@ void Renderer::Init(const std::string& applicationName, const Scope<Window>& win
 		x = x * 2.f - 1.f;
 		y = y * 2.f - 1.f;
 		z = z * 2.f - 1.f;
-		x *= s_SimUBO.simulationDepth-1.f;//s_SimUBO.simulationWidth;
-		y *= s_SimUBO.simulationDepth-1.f;//s_SimUBO.simulationHeight;
-		z *= s_SimUBO.simulationDepth-1.f;
+		x *= s_SimUBO.simulationDepth;//s_SimUBO.simulationWidth;
+		y *= s_SimUBO.simulationDepth;//s_SimUBO.simulationHeight;
+		z *= s_SimUBO.simulationDepth;
 
 		minZ = std::min(z, minZ);
 		maxZ = std::max(z, maxZ);
@@ -312,7 +312,8 @@ void Renderer::Init(const std::string& applicationName, const Scope<Window>& win
 	ImageSpecification MSAASpec =
 	{
 		.device = {m_Device, m_PhysicalDevice.PhysicalDeviceHandle},
-		.size = m_ImageExtend,
+		.type = VK_IMAGE_TYPE_2D,
+		.size = {m_ImageExtend.width, m_ImageExtend.height, 1},
 		.format = c_SwapChainFormat.format,
 		.usage = VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
 		.aspectFlags = VK_IMAGE_ASPECT_COLOR_BIT,
@@ -324,7 +325,8 @@ void Renderer::Init(const std::string& applicationName, const Scope<Window>& win
 	ImageSpecification depthSpec =
 	{
 		.device = {m_Device, m_PhysicalDevice.PhysicalDeviceHandle},
-		.size = m_ImageExtend,
+		.type = VK_IMAGE_TYPE_2D,
+		.size = {m_ImageExtend.width, m_ImageExtend.height, 1},
 		.format = VK_FORMAT_D32_SFLOAT,
 		.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
 		.aspectFlags = VK_IMAGE_ASPECT_DEPTH_BIT,
@@ -571,7 +573,7 @@ void Renderer::CreateSwapChain()
 		.imageColorSpace = c_SwapChainFormat.colorSpace,
 		.imageExtent = m_ImageExtend,
 		.imageArrayLayers = 1,
-		.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,
+		.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,//VK_IMAGE_USAGE_STORAGE_BIT
 		.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE,
 		.queueFamilyIndexCount = 1,
 		.pQueueFamilyIndices = &queueFamily,
@@ -590,7 +592,7 @@ void Renderer::CreateSwapChain()
 	
 	for (size_t i = 0; i < m_Images.size(); i++)
 	{
-		m_ImageViews[i] = Image::CreateImageView(m_Device, m_Images[i], c_SwapChainFormat.format, VK_IMAGE_ASPECT_COLOR_BIT);
+		m_ImageViews[i] = Image::CreateImageView(m_Device, m_Images[i], VK_IMAGE_VIEW_TYPE_2D, c_SwapChainFormat.format, VK_IMAGE_ASPECT_COLOR_BIT);
 	}
 
 }
@@ -1185,7 +1187,7 @@ void Renderer::CreateUniformBuffers()
 //create pool for uniform buffers and SSBO
 void Renderer::CreateDescriptorPool()
 {
-	VkDescriptorPoolSize poolSizes[2] =
+	VkDescriptorPoolSize poolSizes[3] =
 	{
 		{
 			.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
@@ -1193,6 +1195,10 @@ void Renderer::CreateDescriptorPool()
 		},
 		{
 			.type = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER,
+			.descriptorCount = MAX_IN_FLIGHT_FRAMES
+		},
+		{
+			.type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
 			.descriptorCount = MAX_IN_FLIGHT_FRAMES
 		}
 	};
@@ -1202,8 +1208,8 @@ void Renderer::CreateDescriptorPool()
 		.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
 		.pNext = nullptr,
 		.flags = 0,
-		.maxSets = MAX_IN_FLIGHT_FRAMES * 3,
-		.poolSizeCount = 2,
+		.maxSets = MAX_IN_FLIGHT_FRAMES * 4,
+		.poolSizeCount = 3,
 		.pPoolSizes = poolSizes,
 	};
 
@@ -1256,12 +1262,12 @@ void Renderer::CreateDescriptorSets()
 
 void Renderer::CreateComputeDescriptorSets()
 {
-	m_ComputeDescriptorSets = m_SimulationSetLayout.CreateSets(m_DescriptorPool, MAX_IN_FLIGHT_FRAMES, { m_SimulationSpecBuffer, m_InstanceBuffer, m_SpatialBuffer, m_LookUpBuffer });
+	m_ComputeDescriptorSets = m_SimulationSetLayout.CreateSets(m_DescriptorPool, MAX_IN_FLIGHT_FRAMES, { m_SimulationSpecBuffer, m_InstanceBuffer, m_SpatialBuffer, m_LookUpBuffer }, {});
 }
 
 void Renderer::CreateSortDescriptorSets()
 {
-	m_SortDescriptorSets = m_SortSetLayout.CreateSets(m_DescriptorPool, MAX_IN_FLIGHT_FRAMES, { m_SpatialBuffer, m_LookUpBuffer });
+	m_SortDescriptorSets = m_SortSetLayout.CreateSets(m_DescriptorPool, MAX_IN_FLIGHT_FRAMES, { m_SpatialBuffer, m_LookUpBuffer }, {});
 }
 
 void Renderer::CreateCommandBuffer()
@@ -1440,7 +1446,7 @@ void Renderer::recordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t image
 	vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, m_PipelineLayout, 0, 1, &m_DescriptorSets[curentFrame], 0, nullptr);
 
 	//Draw
-	//vkCmdDraw(commandBuffer, vertices.size(), 1, 0, 0);
+	//vkCmdDraw(commandBuffer, cubeVert.size(), 1, 0, 0);
 	vkCmdDrawIndexed(commandBuffer, cubveInd.size(), s_SimUBO.particlesCount, 0, 0, 0);//s_SimUBO.particlesCount
 
 	vkCmdEndRenderPass(commandBuffer);
@@ -1465,7 +1471,7 @@ void Renderer::Begin(VkCommandBuffer commandBuffer)
 	vkBeginCommandBuffer(commandBuffer, &beginBufferInfo);
 }
 
-void Renderer::End(VkCommandBuffer commandBuffer)
+void Renderer::End(VkCommandBuffer commandBuffer, VkPipelineStageFlags* waitStages, const std::vector<VkSemaphore>& waitSemaphores, const std::vector<VkSemaphore>& signalSemaphores)
 {
 	vkEndCommandBuffer(commandBuffer);
 
@@ -1473,13 +1479,13 @@ void Renderer::End(VkCommandBuffer commandBuffer)
 	{
 		.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO,
 		.pNext = nullptr,
-		.waitSemaphoreCount = 0,
-		.pWaitSemaphores = nullptr,
-		.pWaitDstStageMask = nullptr,
+		.waitSemaphoreCount = (uint32_t)waitSemaphores.size(),
+		.pWaitSemaphores = waitSemaphores.data(),
+		.pWaitDstStageMask = waitStages,
 		.commandBufferCount = 1,
 		.pCommandBuffers = &commandBuffer,
-		.signalSemaphoreCount = 0,
-		.pSignalSemaphores = nullptr
+		.signalSemaphoreCount = (uint32_t)signalSemaphores.size(),
+		.pSignalSemaphores = signalSemaphores.data()
 	};
 	vkQueueSubmit(m_ComputeQueue, 1, &computeSubmitInfo, m_InFlightFences[curentFrame]);
 }
@@ -1488,7 +1494,7 @@ void Renderer::SimulationStep(float deltaTime)
 {
 	deltaTime = std::min(deltaTime, 1.f / 60.f);
 	Begin(m_CommandBuffers[curentFrame]);
-	m_GravityStep.Dispatch(m_CommandBuffers[curentFrame], s_SimUBO.particlesCount / 256, &m_ComputeDescriptorSets[0], &deltaTime);
+	m_GravityStep.Dispatch(m_CommandBuffers[curentFrame], s_SimUBO.particlesCount / 256, 1, &m_ComputeDescriptorSets[0], &deltaTime);
 
 	//sorting
 	uint32_t steps = s_SimUBO.particlesCount / 256;
@@ -1525,11 +1531,11 @@ void Renderer::SimulationStep(float deltaTime)
 		}
 	}
 
-	m_OffsetStep.Dispatch(m_CommandBuffers[curentFrame], s_SimUBO.particlesCount / 128, &m_SortDescriptorSets[0]);
-	m_DensityStep.Dispatch(m_CommandBuffers[curentFrame], s_SimUBO.particlesCount / 256, &m_ComputeDescriptorSets[0], &deltaTime);
-	m_PressureStep.Dispatch(m_CommandBuffers[curentFrame], s_SimUBO.particlesCount / 256, &m_ComputeDescriptorSets[0], &deltaTime);
-	m_ViscosityStep.Dispatch(m_CommandBuffers[curentFrame], s_SimUBO.particlesCount / 256, &m_ComputeDescriptorSets[0], &deltaTime);
-	m_UpdateStep.Dispatch(m_CommandBuffers[curentFrame], s_SimUBO.particlesCount / 256, &m_ComputeDescriptorSets[0], &deltaTime);
+	m_OffsetStep.Dispatch(m_CommandBuffers[curentFrame], s_SimUBO.particlesCount / 128, 1, &m_SortDescriptorSets[0]);
+	m_DensityStep.Dispatch(m_CommandBuffers[curentFrame], s_SimUBO.particlesCount / 256, 1, &m_ComputeDescriptorSets[0], &deltaTime);
+	m_PressureStep.Dispatch(m_CommandBuffers[curentFrame], s_SimUBO.particlesCount / 256, 1, &m_ComputeDescriptorSets[0], &deltaTime);
+	m_ViscosityStep.Dispatch(m_CommandBuffers[curentFrame], s_SimUBO.particlesCount / 256, 1, &m_ComputeDescriptorSets[0], &deltaTime);
+	m_UpdateStep.Dispatch(m_CommandBuffers[curentFrame], s_SimUBO.particlesCount / 256, 1, &m_ComputeDescriptorSets[0], &deltaTime);
 
 	End(m_CommandBuffers[curentFrame]);
 }
@@ -1610,12 +1616,12 @@ void Renderer::RenderFrame(float deltaTime)
 
 void Renderer::UpdateCamera(const Camera& camera)
 {
-	UniformBufferObject ubo;
-	ubo.model = glm::scale(glm::mat4(1.f), glm::vec3(0.10));
-	ubo.view = camera.GetViewMatrix();
-	ubo.proj = camera.GetProjectionMatrix();
+	s_RenderingUBO.model = glm::scale(glm::mat4(1.f), glm::vec3(0.10));
+	s_RenderingUBO.view = camera.GetViewMatrix();
+	s_RenderingUBO.proj = camera.GetProjectionMatrix();
+	s_RenderingUBO.cameraPos = camera.GetPosition();
 
-	m_UniformBuffers[curentFrame].Write(&ubo, sizeof(ubo));
+	m_UniformBuffers[curentFrame].Write(&s_RenderingUBO, sizeof(s_RenderingUBO));
 }
 
 void Renderer::RunSortStep(ComputePipeline& sortStep, uint32_t size, uint32_t algorithm)
@@ -1635,7 +1641,7 @@ void Renderer::RunSortStep(ComputePipeline& sortStep, uint32_t size, uint32_t al
 	}
 
 	//LOG(DEBUG, "Algorithm: %d, h:%d, inv:%d", algorithm, size, invocations);
-	sortStep.Dispatch(m_CommandBuffers[curentFrame], invocations, &m_SortDescriptorSets[0], data);
+	sortStep.Dispatch(m_CommandBuffers[curentFrame], invocations, 1, &m_SortDescriptorSets[0], data);
 }
 
 void Renderer::RecreateSwapChain()

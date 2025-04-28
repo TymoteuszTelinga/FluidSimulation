@@ -6,7 +6,8 @@
 struct ImageSpecification
 {
 	Device device;
-	VkExtent2D size;
+	VkImageType type;
+	VkExtent3D size;
 	VkFormat format;
 	VkImageUsageFlags usage;
 	VkImageAspectFlags aspectFlags;
@@ -25,12 +26,14 @@ public:
 
 	void Init(const ImageSpecification& imageSpec);
 	void Resize(VkExtent2D size);
+	VkExtent3D GetExtent() const { return m_Spec.size; }
 	void Free();
 
-	static VkImageView CreateImageView(VkDevice Device, VkImage Image, VkFormat Format, VkImageAspectFlags AspectFlags);
+	static VkImageView CreateImageView(VkDevice Device, VkImage Image, VkImageViewType ViewType, VkFormat Format, VkImageAspectFlags AspectFlags);
 
 private:
 	void Invalidate();
+	VkImageViewType ViewTypeFromImage() const;
 
 private:
 	ImageSpecification m_Spec;

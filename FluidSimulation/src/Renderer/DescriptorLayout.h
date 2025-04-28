@@ -5,6 +5,7 @@
 #include <vector>
 
 class Buffer;
+class Image;
 
 struct LayoutSpecification
 {
@@ -22,7 +23,7 @@ public:
 	void Init(const LayoutSpecification& spec);
 	void Free();
 
-	std::vector<VkDescriptorSet> CreateSets(VkDescriptorPool pool, const uint32_t count, const std::vector<Buffer>& buffers);
+	std::vector<VkDescriptorSet> CreateSets(VkDescriptorPool pool, const uint32_t count, const std::vector<Buffer>& buffers, const std::vector<Image>& images);
 	VkDescriptorSetLayout GetHandle() const { return m_Layout; };
 
 private:

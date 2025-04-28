@@ -23,7 +23,7 @@ public:
 	VkPipelineLayout GetLayoutHandle() const { return m_PipelineLayout; };
 
 	void Init(const ComputePipelineSpecification& spec);
-	void Dispatch(VkCommandBuffer commandBuffer, uint32_t groupCount, const VkDescriptorSet* descriptorSet, const void* pushData = nullptr);
+	void Dispatch(VkCommandBuffer commandBuffer, uint32_t groupX, uint32_t groupY, const VkDescriptorSet* descriptorSet, const void* pushData = nullptr);
 	void Free();
 
 private:

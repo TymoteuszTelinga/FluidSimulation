@@ -53,7 +53,7 @@ void ComputePipeline::Init(const ComputePipelineSpecification& spec)
 	vkDestroyShaderModule(m_Spec.device, computeShaderModule, nullptr);
 }
 
-void ComputePipeline::Dispatch(VkCommandBuffer commandBuffer, uint32_t groupCount, const VkDescriptorSet* descriptorSet, const void* pushData)
+void ComputePipeline::Dispatch(VkCommandBuffer commandBuffer, uint32_t groupX, uint32_t groupY, const VkDescriptorSet* descriptorSet, const void* pushData)
 {
 	vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, m_Pipeline);
 	vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, m_PipelineLayout, 0, 1, descriptorSet, 0, nullptr);
@@ -63,7 +63,7 @@ void ComputePipeline::Dispatch(VkCommandBuffer commandBuffer, uint32_t groupCoun
 		vkCmdPushConstants(commandBuffer, m_PipelineLayout, VK_SHADER_STAGE_COMPUTE_BIT, 0, m_Spec.constantsSize, pushData);
 	}
 
-	vkCmdDispatch(commandBuffer, groupCount, 1, 1);
+	vkCmdDispatch(commandBuffer, groupX, groupY, 1);
 
 	VkMemoryBarrier barrier =
 	{

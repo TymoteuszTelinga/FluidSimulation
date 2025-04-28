@@ -33,7 +33,7 @@ public:
 	//temporary solution
 
 	void Begin(VkCommandBuffer commandBuffer);
-	void End(VkCommandBuffer commandBuffer);
+	void End(VkCommandBuffer commandBuffer, VkPipelineStageFlags *waitStages = nullptr, const std::vector<VkSemaphore>& waitSemaphores = {}, const std::vector<VkSemaphore>& signalSemaphores = {});
 
 	void SimulationStep(float deltaTime);
 	void RestartSimulation();

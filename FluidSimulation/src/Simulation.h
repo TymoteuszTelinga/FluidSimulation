@@ -22,7 +22,7 @@ private:
 	void UpdateCamera(float deltaTime);
 
 private:
-	bool bPoused = true;
+	bool bPoused = false;
 	bool bMinimized = false;
 
 	Scope<Camera> m_Camera;

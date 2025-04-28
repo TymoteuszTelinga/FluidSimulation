@@ -14,7 +14,7 @@ void Image::Resize(VkExtent2D size)
 		return;
 	}
 
-	m_Spec.size = size;
+	m_Spec.size = { size.width, size.height, 1 };
 
 	Invalidate();
 }
@@ -28,7 +28,7 @@ void Image::Free()
 }
 
 //helper funcion for createing image view
-VkImageView Image::CreateImageView(VkDevice Device, VkImage Image, VkFormat Format, VkImageAspectFlags AspectFlags)
+VkImageView Image::CreateImageView(VkDevice Device, VkImage Image, VkImageViewType ViewType, VkFormat Format, VkImageAspectFlags AspectFlags)
 {
 	VkImageViewCreateInfo ViewInfo =
 	{
@@ -36,7 +36,7 @@ VkImageView Image::CreateImageView(VkDevice Device, VkImage Image, VkFormat Form
 		.pNext = NULL,
 		.flags = 0,
 		.image = Image,
-		.viewType = VK_IMAGE_VIEW_TYPE_2D,
+		.viewType = ViewType,
 		.format = Format,
 		.components = {
 			.r = VK_COMPONENT_SWIZZLE_IDENTITY,
@@ -71,9 +71,9 @@ void Image::Invalidate()
 		.sType = VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO,
 		.pNext = nullptr,
 		.flags = 0,
-		.imageType = VK_IMAGE_TYPE_2D,
+		.imageType = m_Spec.type,
 		.format = m_Spec.format,
-		.extent = {m_Spec.size.width, m_Spec.size.height, 1},
+		.extent = {m_Spec.size.width, m_Spec.size.height, m_Spec.size.depth},
 		.mipLevels = 1,
 		.arrayLayers = 1,
 		.samples = m_Spec.samples,
@@ -99,5 +99,18 @@ void Image::Invalidate()
 	vkAllocateMemory(m_Spec.device, &allocInfo, nullptr, &m_ImageMemory);
 	vkBindImageMemory(m_Spec.device, m_Image, m_ImageMemory, 0);
 
-	m_ImageView = CreateImageView(m_Spec.device, m_Image, m_Spec.format, m_Spec.aspectFlags);
+	VkImageViewType viewType = ViewTypeFromImage();
+	m_ImageView = CreateImageView(m_Spec.device, m_Image, viewType, m_Spec.format, m_Spec.aspectFlags);
+}
+
+VkImageViewType Image::ViewTypeFromImage() const
+{
+	switch (m_Spec.type)
+	{
+	case VK_IMAGE_TYPE_1D: return VK_IMAGE_VIEW_TYPE_1D;
+	case VK_IMAGE_TYPE_2D: return VK_IMAGE_VIEW_TYPE_2D;
+	case VK_IMAGE_TYPE_3D: return VK_IMAGE_VIEW_TYPE_3D;
+	}
+
+	return VK_IMAGE_VIEW_TYPE_MAX_ENUM;
 }
