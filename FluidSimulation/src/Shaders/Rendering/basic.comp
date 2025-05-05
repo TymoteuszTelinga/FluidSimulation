@@ -158,7 +158,7 @@ HitInfo TraceRay(Ray ray)
         // if we hit patricle rerturn
         if (closestHit.didHit)
         {
-            // closestHit.normal = vec3(s/200.f, 0.f, 0.f);
+            //closestHit.normal = vec3(1.f, 0.f, 0.f);
             return closestHit;
         }
 
@@ -194,6 +194,92 @@ HitInfo TraceRay(Ray ray)
     return closestHit;
 }
 
+//Ray Marching Particles
+float SurfaceKernel(float radius, float dst)
+{
+    const float PI = 3.14159265358979f;
+
+	if ( dst <= radius)
+    {
+        float v = radius - dst;
+	    float factor =  15.f / (2.f * PI * pow(radius, 5));
+	    return v * v * factor;
+    }
+    return 0.0f;
+}
+
+// Compute SPH density at current position
+float SurfaceDensity(vec3 samplePoint)
+{
+    ivec3 particleCell = GetCell3D(samplePoint, 0.3);
+	float density = 0.f;
+	const float mass = 1.f;
+
+    for (uint i = 0; i < 27; i++)
+    {
+        const uint hash = HashCell3D(particleCell + offsets3D[i]);
+        const uint key = KeyFromHash(hash, 256*(128));
+        uint spatialIndex = LookUp[key];
+
+        while (spatialIndex < 256*(128))
+        {
+            uvec2 indexData = indexes[spatialIndex];
+            spatialIndex++;
+
+            //Exit if no longer looking at correct bin
+            if(indexData.r != key) break;
+
+            uint particleID = indexData.g;
+
+            float dst = length(particles[particleID].position- samplePoint);
+            float influance = SurfaceKernel(0.3f, dst);
+            density += mass * influance;
+        }
+    }
+
+	return density;
+
+}
+
+HitInfo TraceSPH(Ray ray)
+{
+    HitInfo closestHit;
+
+    float dMin, dMax;
+    if(!intersectBox(ray, dMin, dMax))
+    {
+        closestHit.didHit = true;
+        closestHit.normal = getSkyColor(ray);
+        return closestHit;
+    }
+
+    vec3 position = ray.origin + ray.direction * dMin;
+
+    float stepSize = 0.3f/2.f;
+    float iso_value = 0.6f * 105.75f;
+    
+    for (int i = 0; i < 100; i++)
+    {
+        // Compute SPH density at current position
+        float density = SurfaceDensity(position);
+        
+        if ( density > iso_value )
+        {
+            // Refine using binary search
+            //return refine_surface_intersection(ray, position, step_size, iso_value)
+            closestHit.didHit = true;
+            closestHit.normal = vec3(i/100.f, 1.f, 1.f);
+            return closestHit;
+        }
+            
+        position += ray.direction * stepSize;
+    }
+        
+    closestHit.didHit = false;
+    closestHit.normal = vec3(0.f);
+    return closestHit;
+}
+
 //--------------EntryPoints--------------
 layout(local_size_x = 8, local_size_y = 8, local_size_z = 1) in;
 void main()
@@ -211,7 +297,7 @@ void main()
     ray.origin = ubo.cameraPos;
     ray.direction = vec3(inverse(ubo.view) * vec4(normalize(vec3(target) / target.w), 0));
 
-    HitInfo hit = TraceRay(ray);
+    HitInfo hit = TraceSPH(ray);
 
     vec3 outColor = vec3(0.f);
     if (hit.didHit)
