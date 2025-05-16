@@ -1,0 +1,105 @@
+#version 450 core
+#extension GL_ARB_shading_language_include : require
+
+#include "../Simulation/SpatialHash.glsl"
+
+struct Particle
+{
+	vec3 position;
+	float density;
+	vec3 velocity;
+    vec3 predictedPosition;
+};
+
+layout(std140, binding = 0) uniform SimulationSpec
+{
+    float Width;
+    float Height;
+    float Depth;
+    float CollisionDamping;
+    float Radius;
+    float TargetDensity;
+    float PressureMultiplier;
+    int ParticlesCount;
+} u_Spec;
+
+layout(std140, binding = 1) buffer ParticleSSBO
+{
+	Particle particles[];
+};
+
+layout(std430, binding = 2) buffer SpatialIndices
+{
+	uvec2 indexes[];//key, particle index;
+};
+
+layout(std430, binding = 3) buffer SpatialLookUp
+{
+	uint LookUp[];
+};
+
+layout(binding = 4, r32f) uniform image3D densityField;
+
+//--------------HelperFunctions--------------
+float SurfaceKernel(float radius, float dst)
+{
+    const float PI = 3.14159265358979f;
+
+	if ( dst <= radius)
+    {
+        float v = radius - dst;
+	    float factor =  15.f / (2.f * PI * pow(radius, 5));
+	    return v * v * factor;
+    }
+    return 0.0f;
+}
+
+float CalculateDensity(vec3 samplePoint)
+{
+    ivec3 particleCell = GetCell3D(samplePoint, u_Spec.Radius);
+	float density = 0.f;
+	const float mass = 1.f; //ubo
+
+    for (uint i = 0; i < 27; i++)
+    {
+        const uint hash = HashCell3D(particleCell + offsets3D[i]);
+        const uint key = KeyFromHash(hash, u_Spec.ParticlesCount);
+        uint spatialIndex = LookUp[key];
+
+        while (spatialIndex < u_Spec.ParticlesCount)
+        {
+            uvec2 indexData = indexes[spatialIndex];
+            spatialIndex++;
+
+            //Exit if no longer looking at correct bin
+            if(indexData.r != key) break;
+
+            uint particleID = indexData.g;
+
+            float dst = length(particles[particleID].predictedPosition - samplePoint);
+            float influance = SurfaceKernel(u_Spec.Radius, dst);
+            density += mass * influance;
+        }
+    }
+
+	return density;
+}
+
+layout(local_size_x = 8, local_size_y = 8, local_size_z = 8) in;
+void main()
+{
+    ivec3 texelCoord = ivec3(gl_GlobalInvocationID.xyz);    
+    ivec3 dimensions = imageSize(densityField);
+    
+    // Check if within bounds
+    if (texelCoord.x >= dimensions.x || texelCoord.y >= dimensions.y || texelCoord.z >= dimensions.z) 
+    {
+        return;
+    }
+
+    // Convert threadID to a world-space position, and sample the fluid density at that point
+    vec3 texturePos = vec3(texelCoord) / vec3(dimensions - 1);
+    vec3 worldPos = (texturePos - 0.5) * vec3(u_Spec.Width, u_Spec.Height, u_Spec.Depth) * 2.f;
+    float density = CalculateDensity(worldPos);
+    imageStore(densityField, texelCoord, vec4(density, 0.0, 0.0, 0.0));
+}

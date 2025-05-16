@@ -30,6 +30,7 @@ public:
 	void Free();
 
 	static VkImageView CreateImageView(VkDevice Device, VkImage Image, VkImageViewType ViewType, VkFormat Format, VkImageAspectFlags AspectFlags);
+	static VkSampler CreateSampler(VkDevice Device);
 
 private:
 	void Invalidate();

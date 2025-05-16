@@ -4,30 +4,9 @@
 
 layout(binding = 0, rgba32f) uniform writeonly image2D outputImage;
 
-struct Particle
-{
-	vec3 position;
-	float density;
-	vec3 velocity;
-    vec3 predictedPosition;
-};
+layout(binding = 1) uniform sampler3D DensityVolume;
 
-layout(std140, binding = 1) buffer ParticleSSBO
-{
-	Particle particles[];
-};
-
-layout(std430, binding = 2) buffer SpatialIndices
-{
-	uvec2 indexes[];//key, particle index;
-};
-
-layout(std430, binding = 3) buffer SpatialLookUp
-{
-	uint LookUp[];
-};
-
-layout(binding = 4) uniform UniformBufferObject
+layout(binding = 2) uniform UniformBufferObject
 {
 	mat4 model;
 	mat4 view;
@@ -47,7 +26,7 @@ struct Ray
 struct HitInfo 
 {
     bool didHit;
-    float distance;
+    float densityAlongRay;
     vec3 hitPoint;
     vec3 normal;
 };
@@ -72,212 +51,302 @@ bool intersectBox(Ray ray, out float d_min, out float d_max)
     return d_max >= d_min && d_max > 0.0;
 }
 
-HitInfo intersectSphere(Ray ray, vec3 sphere)
-{
-    HitInfo hitInfo;
-    hitInfo.didHit = false;
-    //trace ray agist sphere with radius 1.f;
-    vec3 oc = ray.origin - sphere;
-    float a = dot(ray.direction, ray.direction);
-    float b = 2.0 * dot(oc, ray.direction);
-    float c = dot(oc, oc) - 0.3f * 0.3f;
-    float discriminant = b * b - 4.0 * a * c;
-    
-    if (discriminant > 0.0) {
-        float t = (-b - sqrt(discriminant)) / (2.0 * a);
-        
-        if (t > 0.001) {
-            hitInfo.didHit = true;
-            hitInfo.distance = t;
-            hitInfo.hitPoint = ray.origin + t * ray.direction;
-            hitInfo.normal = normalize(hitInfo.hitPoint - vec3(sphere));
-            return hitInfo;
-        }
-    }
-    
-    return hitInfo;
-}
-
 // Simple sky color
 vec3 getSkyColor(Ray ray) 
 {
+    return vec3(0.01f);
+
     vec3 unitDirection = normalize(ray.direction);
     float t = 0.5 * (unitDirection.y + 1.0);
     return (1.0 - t) * vec3(1.0, 1.0, 1.0) + t * vec3(0.5, 0.7, 1.0) * 0.05f;
 }
 
-HitInfo TraceRay(Ray ray)
-{
-    HitInfo closestHit;
-    closestHit.didHit = false;
-    closestHit.distance = FLT_MAX;
-
-    //trace ray agist sceneBox
-    float dMin, dMax;
-    if(!intersectBox(ray, dMin, dMax))
-    {
-        closestHit.didHit = true;
-        closestHit.normal = getSkyColor(ray);
-        return closestHit;
-    }
-
-    //ray hit simulation space
-
-    Ray dummyRay;
-    dummyRay.origin = ray.origin + ray.direction * dMin;
-    dummyRay.direction = ray.direction;
-
-
-    for (int s = 0; s < 200; s++)
-    {
-        ivec3 rayCell = GetCell3D(dummyRay.origin, 0.3);
-
-        for (int i = 0; i < 27; i++)
-        {
-            const uint hash = HashCell3D(rayCell + offsets3D[i]);// 
-            const uint key = KeyFromHash(hash, 256*(128));
-            uint spatialIndex = LookUp[key];
-
-            while (spatialIndex < 256*(128))
-            {
-                uvec2 indexData = indexes[spatialIndex];
-                spatialIndex++;
-
-                if (indexData.r != key) break;
-
-                uint particleID = indexData.g;
-
-                HitInfo hit = intersectSphere(ray, particles[particleID].position);
-                if (hit.didHit && hit.distance < closestHit.distance)
-                {
-                    closestHit = hit;
-                }
-            }
-        }
-
-        // if we hit patricle rerturn
-        if (closestHit.didHit)
-        {
-            //closestHit.normal = vec3(1.f, 0.f, 0.f);
-            return closestHit;
-        }
-
-        //ray marching
-        dummyRay.origin += dummyRay.direction * 0.6;
-
-        if (abs(dummyRay.origin.x) > 13.f || abs(dummyRay.origin.y) > 17.f || abs(dummyRay.origin.z) > 6.f)
-        {
-            // closestHit.didHit = false;
-            // closestHit.normal = vec3(s/200.f, 0.f, 0.f);
-            return closestHit;
-        }
-
-    }
-
-
-
-    // for (int i=0; i < 256 * 16; i++)
-    // {
-    //     HitInfo hit = intersectSphere(dummyRay, particles[i].position);
-    //     if (hit.didHit && hit.distance < closestHit.distance)
-    //     {
-    //         closestHit = hit;
-    //     }
-    // }
-
-    if (!closestHit.didHit)
-    {
-        closestHit.didHit = true;
-        closestHit.normal = getSkyColor(ray);
-    }
-
-    return closestHit;
-}
-
-//Ray Marching Particles
-float SurfaceKernel(float radius, float dst)
-{
-    const float PI = 3.14159265358979f;
-
-	if ( dst <= radius)
-    {
-        float v = radius - dst;
-	    float factor =  15.f / (2.f * PI * pow(radius, 5));
-	    return v * v * factor;
-    }
-    return 0.0f;
-}
-
 // Compute SPH density at current position
-float SurfaceDensity(vec3 samplePoint)
+float SampleDensity(vec3 samplePoint)
 {
-    ivec3 particleCell = GetCell3D(samplePoint, 0.3);
-	float density = 0.f;
-	const float mass = 1.f;
-
-    for (uint i = 0; i < 27; i++)
-    {
-        const uint hash = HashCell3D(particleCell + offsets3D[i]);
-        const uint key = KeyFromHash(hash, 256*(128));
-        uint spatialIndex = LookUp[key];
-
-        while (spatialIndex < 256*(128))
-        {
-            uvec2 indexData = indexes[spatialIndex];
-            spatialIndex++;
-
-            //Exit if no longer looking at correct bin
-            if(indexData.r != key) break;
-
-            uint particleID = indexData.g;
-
-            float dst = length(particles[particleID].position- samplePoint);
-            float influance = SurfaceKernel(0.3f, dst);
-            density += mass * influance;
-        }
-    }
-
-	return density;
-
+    //-1.f <-> 1.f
+    vec3 textureCoord = samplePoint / vec3(13.f, 16.f, 5.f);
+    //0.f <-> 1.f;
+    textureCoord = (textureCoord + 1.f) / 2.f;
+    
+    const float iso_value = 0.2f * 105.75f;
+    return texture(DensityVolume, textureCoord).r - iso_value;
 }
 
-HitInfo TraceSPH(Ray ray)
+vec3 CalculateClosestFaceNormal(vec3 pos)
+{
+    vec3 o = (vec3(13.f, 16.f, 5.f)- abs(pos));
+    vec3 normal;
+    if (o.x < o.y && o.x < o.z)
+    {
+        normal = vec3(sign(pos.x), 0.f, 0.f);
+    }
+    else
+    {
+        if (o.y < o.z)
+        {
+            normal = vec3(0.f, sign(pos.y), 0.f);
+        }
+        else
+        {
+            normal = vec3(0.f, 0.f, sign(pos.z));
+        }
+    }
+    return normal;
+}
+
+vec3 CalculateNormal(vec3 pos)
+{
+    const float s = 0.1f;
+    vec3 offsetX = vec3(1.f, 0.f, 0.f) * s;
+    vec3 offsetY = vec3(0.f, 1.f, 0.f) * s;
+    vec3 offsetZ = vec3(0.f, 0.f, 1.f) * s;
+
+    float dx = SampleDensity(pos - offsetX) - SampleDensity(pos + offsetX);
+    float dy = SampleDensity(pos - offsetY) - SampleDensity(pos + offsetY);
+    float dz = SampleDensity(pos - offsetZ) - SampleDensity(pos + offsetZ);
+
+    vec3 volumeNormal = normalize(vec3(dx,dy,dz));
+
+    vec3 o = vec3(13.f, 16.f, 5.f) - abs(pos);
+    float faceWeight = min(o.x, min(o.y, o.z));
+    vec3 faceNormal = CalculateClosestFaceNormal(pos);
+
+    const float smoothDst = 0.3f;
+    const float smoothPow = 5.f;
+    faceWeight = (1.f - smoothstep(0, smoothDst, faceWeight)) * (1.f-pow(clamp(volumeNormal.y, 0.f, 1.f), smoothPow));
+
+    return normalize(volumeNormal * (1.f - faceWeight) + faceNormal * (faceWeight));
+}
+
+vec3 refineHitPosition(vec3 position, vec3 direction, float stepsize)
+{
+    for (int i = 0; i < 0; i++)
+    {
+        stepsize /= 2.f;
+        position += -direction * stepsize;
+        float density = SampleDensity(position);
+        if (density <= 0)
+        {
+            stepsize *= -1.f;
+        }
+    }
+    return position;
+}
+
+bool IsInsideFluid(vec3 position)
+{
+    float density = SampleDensity(position);
+    return density > 0.f;
+}
+
+float CalculateDensityAlongRay(vec3 origin, vec3 direction, float stepSize)
+{
+    Ray ray;
+    ray.origin = origin;
+    ray.direction = direction;
+    if (dot(ray.direction, ray.direction) < 0.9f)
+        return 0.f;
+    
+    float dMin, dMax;
+    if(!intersectBox(ray, dMin, dMax))
+    {
+        return 0.f;
+    }
+
+    float totalDenisty = 0.f;
+    dMin = max(0.f, dMin);
+    for (float d = dMin + 0.01f; d <= dMax; d += stepSize)
+    {
+        vec3 position = ray.origin + ray.direction * d;
+        float density = SampleDensity(position) * stepSize * 0.003f;
+        if (density > 0.f)
+        {
+            totalDenisty += density;
+        }
+    }
+    return totalDenisty;
+}
+
+vec3 Enviroment(vec3 position, vec3 direction)
+{
+    const vec3 colGround = vec3(0.35, 0.3, 0.35) * 0.53;
+    const vec3 colSkyHorizon = vec3(1, 1, 1);
+    const vec3 colSkyZenith = vec3(0.08, 0.37, 0.73);
+
+    float sun = pow(max(0, dot(direction, normalize(vec3(-1.f)))), 50);
+    float skyGradientT = pow(smoothstep(0, 0.4, -direction.y), 0.35);
+    float groundToSkyT = smoothstep(-0.01, 0, -direction.y);
+    vec3 skyGradient = mix(colSkyHorizon, colSkyZenith, skyGradientT);
+
+    float a = groundToSkyT >= 1 ? 1.f : 0.f;
+    return mix(colGround, skyGradient, groundToSkyT) + vec3(sun * a);
+}
+
+
+HitInfo FindNextSurface(Ray ray, bool bFindNextEntry, float stepSize)
 {
     HitInfo closestHit;
+    closestHit.didHit = false;
+    closestHit.densityAlongRay = 0.f;
+    closestHit.hitPoint = vec3(0.f);
+    closestHit.normal = vec3(0.f);
 
     float dMin, dMax;
     if(!intersectBox(ray, dMin, dMax))
     {
-        closestHit.didHit = true;
-        closestHit.normal = getSkyColor(ray);
         return closestHit;
     }
 
-    vec3 position = ray.origin + ray.direction * dMin;
+    bool hasExittedFluid = !IsInsideFluid(ray.origin);
+    bool hasEnteredFluid = false;
+    vec3 lastPositionInFluid = ray.origin;
 
-    float stepSize = 0.3f/2.f;
-    float iso_value = 0.6f * 105.75f;
-    
-    for (int i = 0; i < 100; i++)
+    dMin = max(0.f, dMin);
+    for (float d = dMin + 0.01f; d <= dMax; d += stepSize)
     {
-        // Compute SPH density at current position
-        float density = SurfaceDensity(position);
-        
-        if ( density > iso_value )
+        bool isLastStep = d + stepSize >= dMax;
+        vec3 position = ray.origin + ray.direction * d;
+        float density = SampleDensity(position) * stepSize * 0.003f;
+        bool insideFluid = density > 0.f;
+        if (insideFluid)
         {
-            // Refine using binary search
-            //return refine_surface_intersection(ray, position, step_size, iso_value)
-            closestHit.didHit = true;
-            closestHit.normal = vec3(i/100.f, 1.f, 1.f);
-            return closestHit;
+            closestHit.densityAlongRay += density;
+            lastPositionInFluid = position;
+            hasEnteredFluid = true;
         }
-            
-        position += ray.direction * stepSize;
+        else
+        {
+            hasExittedFluid = true;
+        }
+
+        bool found;
+        if (bFindNextEntry)
+        {
+            found = insideFluid && hasExittedFluid;
+        }
+        else
+        {
+            found = hasEnteredFluid && (!insideFluid || isLastStep);
+        }
+
+        if ( found )
+        {
+            closestHit.didHit = true;
+            closestHit.hitPoint = lastPositionInFluid;
+            break;
+        }
     }
-        
-    closestHit.didHit = false;
-    closestHit.normal = vec3(0.f);
+
     return closestHit;
+}
+
+// 1 <- reflect (odbicie)
+// 0 <- refract (zagięcie)
+float CalculateReflectance(vec3 dir, vec3 normal, float iorA, float iorB)
+{
+    float refractRatio = iorA / iorB;
+    float cosAngle = -dot(dir, normal);
+    float sinSqrAngleOfRefraction = refractRatio * refractRatio * (1 - cosAngle * cosAngle);
+    if (sinSqrAngleOfRefraction >= 1.f)
+    {
+        return 1.f; //Ray is fully reflected, no refraction occurs
+    }
+
+    float cosAngleOfRefraction = sqrt(1.f - sinSqrAngleOfRefraction);
+    // Perpendicular polarization
+    float rPerpendicular = (iorA * cosAngle - iorB * cosAngleOfRefraction) / (iorA * cosAngle + iorB * cosAngleOfRefraction);
+    rPerpendicular *= rPerpendicular;
+    // Parallel polarization
+    float rParallel = (iorB * cosAngle - iorA * cosAngleOfRefraction) / (iorB * cosAngle + iorA * cosAngleOfRefraction);
+    rParallel *= rParallel;
+
+    // Return the average of the perpendicular and parallel polarizations
+    return (rPerpendicular + rParallel) / 2;
+}
+
+vec3 TraceSPH(Ray ray)
+{
+    HitInfo hit;
+    hit.didHit = false;
+    hit.densityAlongRay = 0.f;
+    hit.normal = vec3(0.f);
+
+    vec3 Contribution = vec3(1.f);
+    vec3 Light = vec3(0.f);
+
+    float stepSize = 0.02f;
+    bool bRayFromInsideFluid = IsInsideFluid(ray.origin);
+
+    vec3 pathId = vec3(0.f);
+
+    for (int i = 0; i < 1; i++)
+    {
+        hit = FindNextSurface(ray, !bRayFromInsideFluid, stepSize);
+
+        Contribution *= exp(-hit.densityAlongRay * vec3(7.23f, 2.71f, 1.41f));
+        if (!hit.didHit)
+        {
+            break;
+        }
+
+        hit.normal = CalculateNormal(hit.hitPoint);
+        if (dot(hit.normal, ray.direction) > 0.f)
+        {
+            hit.normal = -hit.normal;
+        }
+
+        float iorA = bRayFromInsideFluid ? 1.333f : 1.f;
+        float iorB = bRayFromInsideFluid ? 1.0f : 1.333f;
+
+        float reflectWeight = CalculateReflectance(ray.direction, hit.normal, iorA, iorB);
+        float refractWeight = 1.f - reflectWeight;
+        vec3 refractDir = refract(ray.direction, hit.normal, iorA / iorB);
+        vec3 reflectDir = reflect(ray.direction, hit.normal);
+        float refractDensity = CalculateDensityAlongRay(hit.hitPoint, refractDir, 0.1);
+        float reflectDensity = CalculateDensityAlongRay(hit.hitPoint, reflectDir, 0.1);
+
+        bool refractPath = refractWeight*refractDensity > reflectWeight*reflectDensity;
+        // refractPath = true;
+        pathId = vec3(0.f, refractDensity * refractWeight, reflectDensity * reflectWeight);
+
+        Light += Enviroment(ray.origin, reflectDir) * Contribution * exp(-reflectDensity*vec3(7.23f, 2.71f, 1.41f)) * reflectWeight;
+        Light += Enviroment(ray.origin, refractDir) * Contribution * exp(-refractDensity*vec3(7.23f, 2.71f, 1.41f)) * refractWeight;
+        if (refractPath)
+        {
+            //reflect light Aprximation
+            ray.direction = refractDir;
+        }
+        else
+        {
+            //refract light Aprximation
+            ray.direction = reflectDir;
+        }
+
+        ray.origin = hit.hitPoint;
+        bRayFromInsideFluid = refractPath != bRayFromInsideFluid;
+    }
+
+    if(!hit.didHit)
+    {
+        Light += Enviroment(ray.origin, ray.direction) * Contribution * exp(-CalculateDensityAlongRay(ray.origin, ray.direction, 0.1)*vec3(1.41f, 2.71f, 7.23f));
+        pathId = vec3(1.f, 0.f, 0.f);
+    }
+
+    // Light = vec3(hit.densityAlongRay);
+
+    return Light;
+
+    return pathId;
+
+    if(!hit.didHit)
+    {
+        return vec3(0.f);
+    }
+
+    hit.normal += 1.f;
+    hit.normal *= 0.5f;
+    return hit.normal;
 }
 
 //--------------EntryPoints--------------
@@ -297,13 +366,28 @@ void main()
     ray.origin = ubo.cameraPos;
     ray.direction = vec3(inverse(ubo.view) * vec4(normalize(vec3(target) / target.w), 0));
 
-    HitInfo hit = TraceSPH(ray);
+    vec3 light = TraceSPH(ray);
 
     vec3 outColor = vec3(0.f);
-    if (hit.didHit)
-    {
-        outColor = hit.normal;
-    }
+    outColor = light;
+    // if (hit.didHit)
+    // {
+    //     vec3 lightDir = vec3(-1.f);
+    //     float lightAmmout = dot(hit.normal, lightDir);
+    //     lightAmmout = max(lightAmmout, 0.02f);
+    //     outColor = lightAmmout * vec3(0.f, 0.f, 1.f);
+
+    //     outColor = (hit.normal + 1.f) / 2.f;
+    //     // outColor = hit.normal;
+    // }
+    // else
+    // {
+    //     outColor = getSkyColor(ray);
+    // }
+
+    // vec2 texCoord = (uv + 1.f) / 2.f;
+    // float value = texture(DensityVolume, vec3(texCoord, 0.f)).r;
+    // outColor = vec3(value);
     
     imageStore(outputImage, id, vec4(outColor, 1.f));
 }

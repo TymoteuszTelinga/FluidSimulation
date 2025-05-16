@@ -138,6 +138,7 @@ private:
 	VkDescriptorPool m_DescriptorPool = VK_NULL_HANDLE;
 
 	//Compute
+	Image m_DensityVolume;
 	DescriptorLayout m_SimulationSetLayout;
 	std::vector<VkDescriptorSet> m_ComputeDescriptorSets;
 
@@ -146,6 +147,7 @@ private:
 	ComputePipeline m_PressureStep;
 	ComputePipeline m_ViscosityStep;
 	ComputePipeline m_UpdateStep;
+	ComputePipeline m_VolumeStep;
 
 	//sorting
 	//VkDescriptorSetLayout m_SortDescriptorSetLayout = VK_NULL_HANDLE;
@@ -157,6 +159,7 @@ private:
 
 	//Graphics
 	Image m_ScreenImage;
+
 	DescriptorLayout m_RayTracingLayout;
 	VkDescriptorSet m_RayTracingSet;
 

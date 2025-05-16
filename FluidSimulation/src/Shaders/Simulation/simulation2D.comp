@@ -19,8 +19,8 @@ layout(push_constant) uniform Push
 
 layout(std140, binding = 0) uniform SimulationSpec
 {
-    float Height;
     float Width;
+    float Height;
     float Depth;
     float CollisionDamping;
     float Radius;

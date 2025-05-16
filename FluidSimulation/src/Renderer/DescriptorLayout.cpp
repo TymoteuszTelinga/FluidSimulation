@@ -27,11 +27,15 @@ void DescriptorLayout::Init(const LayoutSpecification& spec)
 	};
 
 	vkCreateDescriptorSetLayout(m_Spec.device, &layoutInfo, nullptr, &m_Layout);
+
+	m_DefaultSampler = Image::CreateSampler(m_Spec.device);
 }
 
 void DescriptorLayout::Free()
 {
 	vkDestroyDescriptorSetLayout(m_Spec.device, m_Layout, nullptr);
+
+	vkDestroySampler(m_Spec.device, m_DefaultSampler, nullptr);
 }
 
 bool IsDescriptorTypeBuffer(const VkDescriptorType type)
@@ -69,11 +73,13 @@ std::vector<VkDescriptorSet> DescriptorLayout::CreateSets(VkDescriptorPool pool,
 		bufferInfo[i].offset = 0;
 		bufferInfo[i].range = buffers[i].GetSize();
 	}
+
 	std::vector<VkDescriptorImageInfo> imageInfo(images.size());
 	for (size_t i = 0; i < imageInfo.size(); i++)
 	{
 		imageInfo[i].imageLayout = VK_IMAGE_LAYOUT_GENERAL;
 		imageInfo[i].imageView = images[i].GetImageView();
+		imageInfo[i].sampler = nullptr;
 	}
 
 	std::vector<VkWriteDescriptorSet> writes(m_Spec.types.size());
@@ -84,6 +90,12 @@ std::vector<VkDescriptorSet> DescriptorLayout::CreateSets(VkDescriptorPool pool,
 		for (size_t i = 0; i < m_Spec.types.size(); i++)
 		{
 			bool isBufferType = IsDescriptorTypeBuffer(m_Spec.types[i]);
+
+			if (m_Spec.types[i] == VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER)
+			{
+				imageInfo[CurrentImageToBind].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+				imageInfo[CurrentImageToBind].sampler = m_DefaultSampler;
+			}
 
 			//write
 			writes[i].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;

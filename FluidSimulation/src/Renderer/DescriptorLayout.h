@@ -29,4 +29,6 @@ public:
 private:
 	LayoutSpecification m_Spec;
 	VkDescriptorSetLayout m_Layout;
+
+	VkSampler m_DefaultSampler = VK_NULL_HANDLE;
 };

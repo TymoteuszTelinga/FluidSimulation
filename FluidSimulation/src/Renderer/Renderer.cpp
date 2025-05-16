@@ -169,8 +169,8 @@ static struct UniformBufferObject
 
 static struct SimulationUBO
 {
-	float simulationHeight = 32.f / 2.f;//in use
 	float simulationWidth = 26.f / 2.f;//in use
+	float simulationHeight = 26.f / 2.f;//in use
 	float simulationDepth = 10.f/ 2.f;//in use
 	float collisionDamping = 0.8f;//in use
 	float kernelRadius = 0.3;//in use
@@ -222,6 +222,7 @@ Renderer::~Renderer()
 	m_PressureStep.Free();
 	m_ViscosityStep.Free();
 	m_UpdateStep.Free();
+	m_VolumeStep.Free();
 
 	m_SortStep.Free();
 	m_OffsetStep.Free();
@@ -237,6 +238,7 @@ Renderer::~Renderer()
 
 	m_MSAAImage.Free();
 	m_DepthImage.Free();
+	m_DensityVolume.Free();
 	//m_SurfaceImage.Free();
 	m_ScreenImage.Free();
 
@@ -278,7 +280,7 @@ void Renderer::Init(const std::string& applicationName, const Scope<Window>& win
 		maxZ = std::max(z, maxZ);
 
 		x += 0.f;
-		y += 10.f;
+		y += s_SimUBO.simulationHeight - s_SimUBO.simulationDepth;
 		z += 0.f;
 		//y = 0.f;
 		/*x += 0.1f;
@@ -340,6 +342,19 @@ void Renderer::Init(const std::string& applicationName, const Scope<Window>& win
 		.tiling = VK_IMAGE_TILING_OPTIMAL
 	};
 	m_DepthImage.Init(depthSpec);
+
+	ImageSpecification imageSpec =
+	{
+		.device = {m_Device, m_PhysicalDevice.PhysicalDeviceHandle},
+		.type = VK_IMAGE_TYPE_3D,
+		.size = {88*2, 88*2, 32*2},
+		.format = VK_FORMAT_R32_SFLOAT,
+		.usage = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT,
+		.aspectFlags = VK_IMAGE_ASPECT_COLOR_BIT,
+		.samples = VK_SAMPLE_COUNT_1_BIT,
+		.tiling = VK_IMAGE_TILING_OPTIMAL
+	};
+	m_DensityVolume.Init(imageSpec);
 
 	CreateFramebuffers();
 
@@ -722,8 +737,8 @@ void Renderer::CreateDescriptorSetLayout()
 	{
 		.device = {m_Device, m_PhysicalDevice.PhysicalDeviceHandle},
 		.stage = VK_SHADER_STAGE_COMPUTE_BIT,
-		.types = {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER}
-		//uniform, particles, spacial, lookup
+		.types = {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE}
+		//uniform, particles, spacial, lookup, volumeImage
 	};
 	m_SimulationSetLayout.Init(simulationLayoutSpec);
 
@@ -1022,6 +1037,16 @@ void Renderer::CreateComputePipeline()
 		.constantsSize = 0
 	};
 	m_OffsetStep.Init(offsetSpec);
+
+	ComputePipelineSpecification volumeSpec =
+	{
+		.device = {m_Device, m_PhysicalDevice.PhysicalDeviceHandle},
+		.shaderPath = "src\\Shaders\\Rendering\\volume.spv",
+		.entryPoint = "main",
+		.descriptorLayout = m_SimulationSetLayout.GetHandle(),
+		.constantsSize = 0
+	};
+	m_VolumeStep.Init(volumeSpec);
 }
 
 void Renderer::CreateFramebuffers()
@@ -1271,7 +1296,7 @@ void Renderer::CreateDescriptorSets()
 
 void Renderer::CreateComputeDescriptorSets()
 {
-	m_ComputeDescriptorSets = m_SimulationSetLayout.CreateSets(m_DescriptorPool, MAX_IN_FLIGHT_FRAMES, { m_SimulationSpecBuffer, m_InstanceBuffer, m_SpatialBuffer, m_LookUpBuffer }, {});
+	m_ComputeDescriptorSets = m_SimulationSetLayout.CreateSets(m_DescriptorPool, MAX_IN_FLIGHT_FRAMES, { m_SimulationSpecBuffer, m_InstanceBuffer, m_SpatialBuffer, m_LookUpBuffer }, {m_DensityVolume});
 }
 
 void Renderer::CreateSortDescriptorSets()
@@ -1298,8 +1323,8 @@ void Renderer::InitRayTracing()
 	{
 		.device = {m_Device, m_PhysicalDevice.PhysicalDeviceHandle},
 		.stage = VK_SHADER_STAGE_COMPUTE_BIT,
-		.types = {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER}
-		//image, particles, spacial, lookup, cameraUBO
+		.types = {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER}
+		//image, Density, cameraUBO
 	};
 	m_RayTracingLayout.Init(RayTracingLayoutSpec);
 
@@ -1313,7 +1338,8 @@ void Renderer::InitRayTracing()
 	};
 	m_RayTracing.Init(RayTracingSpec);
 
-	m_RayTracingSet = m_RayTracingLayout.CreateSets(m_DescriptorPool, 1, {m_InstanceBuffer, m_SpatialBuffer, m_LookUpBuffer, m_UniformBuffers[0]}, {m_ScreenImage})[0];
+
+	m_RayTracingSet = m_RayTracingLayout.CreateSets(m_DescriptorPool, 1, {m_UniformBuffers[0]}, {m_ScreenImage, m_DensityVolume})[0];
 }
 
 void Renderer::CreateCommandBuffer()
@@ -1540,7 +1566,7 @@ void Renderer::SimulationStep(float deltaTime)
 {
 	deltaTime = std::min(deltaTime, 1.f / 60.f);
 	Begin(m_CommandBuffers[curentFrame]);
-	m_GravityStep.Dispatch(m_CommandBuffers[curentFrame], s_SimUBO.particlesCount / 256, 1, &m_ComputeDescriptorSets[0], &deltaTime);
+	m_GravityStep.Dispatch(m_CommandBuffers[curentFrame], s_SimUBO.particlesCount / 256, 1, 1, &m_ComputeDescriptorSets[0], &deltaTime);
 
 	//sorting
 	uint32_t steps = s_SimUBO.particlesCount / 256;
@@ -1577,11 +1603,11 @@ void Renderer::SimulationStep(float deltaTime)
 		}
 	}
 
-	m_OffsetStep.Dispatch(m_CommandBuffers[curentFrame], s_SimUBO.particlesCount / 128, 1, &m_SortDescriptorSets[0]);
-	m_DensityStep.Dispatch(m_CommandBuffers[curentFrame], s_SimUBO.particlesCount / 256, 1, &m_ComputeDescriptorSets[0], &deltaTime);
-	m_PressureStep.Dispatch(m_CommandBuffers[curentFrame], s_SimUBO.particlesCount / 256, 1, &m_ComputeDescriptorSets[0], &deltaTime);
-	m_ViscosityStep.Dispatch(m_CommandBuffers[curentFrame], s_SimUBO.particlesCount / 256, 1, &m_ComputeDescriptorSets[0], &deltaTime);
-	m_UpdateStep.Dispatch(m_CommandBuffers[curentFrame], s_SimUBO.particlesCount / 256, 1, &m_ComputeDescriptorSets[0], &deltaTime);
+	m_OffsetStep.Dispatch(m_CommandBuffers[curentFrame], s_SimUBO.particlesCount / 128, 1, 1, &m_SortDescriptorSets[0]);
+	m_DensityStep.Dispatch(m_CommandBuffers[curentFrame], s_SimUBO.particlesCount / 256, 1, 1, &m_ComputeDescriptorSets[0], &deltaTime);
+	m_PressureStep.Dispatch(m_CommandBuffers[curentFrame], s_SimUBO.particlesCount / 256, 1, 1, &m_ComputeDescriptorSets[0], &deltaTime);
+	m_ViscosityStep.Dispatch(m_CommandBuffers[curentFrame], s_SimUBO.particlesCount / 256, 1, 1, &m_ComputeDescriptorSets[0], &deltaTime);
+	m_UpdateStep.Dispatch(m_CommandBuffers[curentFrame], s_SimUBO.particlesCount / 256, 1, 1, &m_ComputeDescriptorSets[0], &deltaTime);
 
 	End(m_CommandBuffers[curentFrame]);
 }
@@ -1607,9 +1633,32 @@ void Renderer::RestartSimulation()
 
 void Renderer::RenderFrame(float deltaTime)
 {
-	/*
-	*/
+	//render image
 	Begin(m_CommandBuffers[curentFrame]);
+
+	Utilites::TransferImageDetails volumeBarier =
+	{
+		.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED,
+		.newLayout = VK_IMAGE_LAYOUT_GENERAL,
+		.srcAccess = 0,
+		.dstAccess = VK_ACCESS_SHADER_WRITE_BIT,
+		.srcMask = VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+		.dstMask = VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT
+	};
+	Utilites::CmdTransferImage(m_CommandBuffers[curentFrame], m_DensityVolume.GetImageHandle(), volumeBarier);
+	VkExtent3D extend = m_DensityVolume.GetExtent();
+	m_VolumeStep.Dispatch(m_CommandBuffers[curentFrame], extend.width / 8, extend.height / 8, extend.depth / 8, &m_ComputeDescriptorSets[0], nullptr);
+
+	Utilites::TransferImageDetails samplerBarier =
+	{
+		.oldLayout = VK_IMAGE_LAYOUT_GENERAL,
+		.newLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+		.srcAccess = 0,
+		.dstAccess = VK_ACCESS_SHADER_WRITE_BIT,
+		.srcMask = VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+		.dstMask = VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT
+	};
+	Utilites::CmdTransferImage(m_CommandBuffers[curentFrame], m_DensityVolume.GetImageHandle(), samplerBarier);
 
 	Utilites::TransferImageDetails barrier =
 	{
@@ -1622,7 +1671,7 @@ void Renderer::RenderFrame(float deltaTime)
 	};
 	Utilites::CmdTransferImage(m_CommandBuffers[curentFrame], m_ScreenImage.GetImageHandle(), barrier);
 
-	m_RayTracing.Dispatch(m_CommandBuffers[curentFrame], m_ImageExtend.width / 8, m_ImageExtend.height / 8, &m_RayTracingSet);
+	m_RayTracing.Dispatch(m_CommandBuffers[curentFrame], m_ImageExtend.width / 8, m_ImageExtend.height / 8, 1, &m_RayTracingSet);
 
 	End(m_CommandBuffers[curentFrame]);
 
@@ -1755,7 +1804,7 @@ void Renderer::RunSortStep(ComputePipeline& sortStep, uint32_t size, uint32_t al
 	}
 
 	//LOG(DEBUG, "Algorithm: %d, h:%d, inv:%d", algorithm, size, invocations);
-	sortStep.Dispatch(m_CommandBuffers[curentFrame], invocations, 1, &m_SortDescriptorSets[0], data);
+	sortStep.Dispatch(m_CommandBuffers[curentFrame], invocations, 1, 1, &m_SortDescriptorSets[0], data);
 }
 
 void Renderer::RecreateSwapChain()
