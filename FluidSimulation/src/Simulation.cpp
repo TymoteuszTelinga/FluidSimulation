@@ -31,7 +31,7 @@ void Simulation::OnUpdate(float deltaTime)
 	m_Renderer->UpdateCamera(*m_Camera);
 	if (!bPoused)
 	{
-		m_Renderer->SimulationStep(deltaTime);
+		m_Renderer->SimulationStep(bSlowmo? deltaTime*0.2f : deltaTime);
 	}
 	else if (Input::IsKeyDown(GLFW_KEY_RIGHT))
 	{
@@ -41,6 +41,9 @@ void Simulation::OnUpdate(float deltaTime)
 
 void Simulation::OnRender()
 {
+	if (bMinimized)
+		return;
+
 	m_Renderer->RenderFrame(0.1f);
 }
 
@@ -71,6 +74,12 @@ bool Simulation::OnKeyPressed(KeyPressedEvent& e)
 	{
 		m_Renderer->RestartSimulation();
 		bPoused = true;
+	}
+
+	if (e.GetKeyCode() == GLFW_KEY_Z)
+	{
+		bSlowmo = !bSlowmo;
+		LOG(DEBUG, "Slowmo state: %s", bSlowmo ? "Active" : "Disable");
 	}
 
 	return true;
@@ -144,4 +153,9 @@ void Simulation::UpdateCamera(float deltaTime)
 		m_Camera->SetPosition(CameraPos);
 		//LOG(DEBUG, "camera position: %.2f, %.2f, %.2f", CameraPos.x, CameraPos.y, CameraPos.z);
 	}
+}
+
+void Simulation::ToggleSlowmo()
+{
+	bSlowmo = !bSlowmo;
 }

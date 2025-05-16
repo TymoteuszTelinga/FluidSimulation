@@ -20,10 +20,12 @@ private:
 	bool OnResize(WindowResizeEvent& e);
 	bool OnKeyPressed(KeyPressedEvent& e);
 	void UpdateCamera(float deltaTime);
+	void ToggleSlowmo();
 
 private:
 	bool bPoused = false;
 	bool bMinimized = false;
+	bool bSlowmo = false;
 
 	Scope<Camera> m_Camera;
 	glm::vec2 m_LastMousePosition;
