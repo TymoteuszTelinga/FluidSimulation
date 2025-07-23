@@ -2,6 +2,8 @@
 #ifdef _DEBUG
 
     #include <ctime>
+    #include <stdio.h>
+    #include <utility>
 
     enum LogLevel { DEBUG, INFO, WARNING, ERROR, CRITICAL };
 

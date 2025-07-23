@@ -31,6 +31,14 @@ struct HitInfo
     vec3 normal;
 };
 
+struct LightResponse
+{
+    vec3 reflectDir;
+    float reflectWeight;
+    vec3 refractDir;
+    float refractWeight;
+};
+
 //--------------HelperFunctions--------------
 bool intersectBox(Ray ray, out float d_min, out float d_max) 
 {
@@ -272,13 +280,14 @@ vec3 TraceSPH(Ray ray)
     hit.densityAlongRay = 0.f;
     hit.normal = vec3(0.f);
 
+    LightResponse lightInfo;
+    float remidingWeight = 1.f;
+
     vec3 Contribution = vec3(1.f);
     vec3 Light = vec3(0.f);
 
     float stepSize = 0.02f;
     bool bRayFromInsideFluid = IsInsideFluid(ray.origin);
-
-    vec3 pathId = vec3(0.f);
 
     for (int i = 0; i < 1; i++)
     {
@@ -299,45 +308,48 @@ vec3 TraceSPH(Ray ray)
         float iorA = bRayFromInsideFluid ? 1.333f : 1.f;
         float iorB = bRayFromInsideFluid ? 1.0f : 1.333f;
 
-        float reflectWeight = CalculateReflectance(ray.direction, hit.normal, iorA, iorB);
-        float refractWeight = 1.f - reflectWeight;
-        vec3 refractDir = refract(ray.direction, hit.normal, iorA / iorB);
-        vec3 reflectDir = reflect(ray.direction, hit.normal);
-        float refractDensity = CalculateDensityAlongRay(hit.hitPoint, refractDir, 0.1);
-        float reflectDensity = CalculateDensityAlongRay(hit.hitPoint, reflectDir, 0.1);
+        //light info
+        lightInfo.reflectWeight = CalculateReflectance(ray.direction, hit.normal, iorA, iorB);
+        lightInfo.refractWeight = 1.f - lightInfo.reflectWeight;
+        lightInfo.refractDir = refract(ray.direction, hit.normal, iorA / iorB);
+        lightInfo.reflectDir = reflect(ray.direction, hit.normal);
+        float refractDensity = CalculateDensityAlongRay(hit.hitPoint, lightInfo.refractDir, 0.1);
+        float reflectDensity = CalculateDensityAlongRay(hit.hitPoint, lightInfo.reflectDir, 0.1);
 
-        bool refractPath = refractWeight*refractDensity > reflectWeight*reflectDensity;
+        bool refractPath = lightInfo.refractWeight*refractDensity > lightInfo.reflectWeight*reflectDensity;
         // refractPath = true;
-        pathId = vec3(0.f, refractDensity * refractWeight, reflectDensity * reflectWeight);
 
-        Light += Enviroment(ray.origin, reflectDir) * Contribution * exp(-reflectDensity*vec3(7.23f, 2.71f, 1.41f)) * reflectWeight;
-        Light += Enviroment(ray.origin, refractDir) * Contribution * exp(-refractDensity*vec3(7.23f, 2.71f, 1.41f)) * refractWeight;
         if (refractPath)
         {
             //reflect light Aprximation
-            ray.direction = refractDir;
+            Light += Enviroment(ray.origin, lightInfo.reflectDir) * Contribution * exp(-reflectDensity*vec3(7.23f, 2.71f, 1.41f)) * lightInfo.reflectWeight;
+            // ray.direction = lightInfo.refractDir;
+            remidingWeight = lightInfo.refractWeight;
         }
         else
         {
             //refract light Aprximation
-            ray.direction = reflectDir;
+            Light += Enviroment(ray.origin, lightInfo.refractDir) * Contribution * exp(-refractDensity*vec3(7.23f, 2.71f, 1.41f)) * lightInfo.refractWeight;
+            // ray.direction = lightInfo.reflectDir;
+            remidingWeight = lightInfo.reflectWeight;
         }
 
         ray.origin = hit.hitPoint;
         bRayFromInsideFluid = refractPath != bRayFromInsideFluid;
     }
 
-    if(!hit.didHit)
+    // return vec3(hit.densityAlongRay + CalculateDensityAlongRay(ray.origin, ray.direction, 0.1));
+    
+    // if(!hit.didHit)
+    // {
+    //     Light += Enviroment(ray.origin, ray.direction) * Contribution * exp(-CalculateDensityAlongRay(ray.origin, ray.direction, 0.1)*vec3(7.23f, 2.71f, 1.41f));
+    // }
+    // else
     {
-        Light += Enviroment(ray.origin, ray.direction) * Contribution * exp(-CalculateDensityAlongRay(ray.origin, ray.direction, 0.1)*vec3(1.41f, 2.71f, 7.23f));
-        pathId = vec3(1.f, 0.f, 0.f);
+        Light += Enviroment(ray.origin, ray.direction) * Contribution * exp(-CalculateDensityAlongRay(ray.origin, ray.direction, 0.1)*vec3(7.23f, 2.71f, 1.41f)) * remidingWeight;
     }
 
-    // Light = vec3(hit.densityAlongRay);
-
     return Light;
-
-    return pathId;
 
     if(!hit.didHit)
     {

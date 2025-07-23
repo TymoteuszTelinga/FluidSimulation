@@ -306,8 +306,13 @@ void Renderer::Init(const std::string& applicationName, const Scope<Window>& win
 	CreateDebugCallback();
 
 	CreateSurface(window);
-	PickPhysicalDevice();
-	CreateLogicalDevice();
+
+	m_Device = Device::CreateDivice(m_Instance);
+	m_QueueFamily = Device::GetFamilyQueue(m_Device.physicalDevice, VK_QUEUE_GRAPHICS_BIT);
+	vkGetDeviceQueue(m_Device, m_QueueFamily, 0, &m_ComputeQueue);
+	vkGetDeviceQueue(m_Device, m_QueueFamily, 0, &m_Queue); //graphics
+	uint32_t PresentQueue = Device::GetPresentQueue(m_Device.physicalDevice, m_Surface);
+	vkGetDeviceQueue(m_Device, PresentQueue, 0, &m_PresentQueue);
 
 	CreateSwapChain();
 	CreateRenderPass();
@@ -319,7 +324,7 @@ void Renderer::Init(const std::string& applicationName, const Scope<Window>& win
 
 	ImageSpecification MSAASpec =
 	{
-		.device = {m_Device, m_PhysicalDevice.PhysicalDeviceHandle},
+		.device = m_Device,
 		.type = VK_IMAGE_TYPE_2D,
 		.size = {m_ImageExtend.width, m_ImageExtend.height, 1},
 		.format = c_SwapChainFormat.format,
@@ -332,7 +337,7 @@ void Renderer::Init(const std::string& applicationName, const Scope<Window>& win
 
 	ImageSpecification depthSpec =
 	{
-		.device = {m_Device, m_PhysicalDevice.PhysicalDeviceHandle},
+		.device = m_Device,
 		.type = VK_IMAGE_TYPE_2D,
 		.size = {m_ImageExtend.width, m_ImageExtend.height, 1},
 		.format = VK_FORMAT_D32_SFLOAT,
@@ -345,7 +350,7 @@ void Renderer::Init(const std::string& applicationName, const Scope<Window>& win
 
 	ImageSpecification imageSpec =
 	{
-		.device = {m_Device, m_PhysicalDevice.PhysicalDeviceHandle},
+		.device = m_Device,
 		.type = VK_IMAGE_TYPE_3D,
 		.size = {88*2, 88*2, 32*2},
 		.format = VK_FORMAT_R32_SFLOAT,
@@ -470,106 +475,10 @@ void Renderer::CreateSurface(const Scope<Window>& window)
 	}
 }
 
-void Renderer::PickPhysicalDevice()
-{
-	uint32_t deviceCount = 0;
-	vkEnumeratePhysicalDevices(m_Instance, &deviceCount, nullptr);
-
-	std::vector<VkPhysicalDevice> devices(deviceCount);
-	vkEnumeratePhysicalDevices(m_Instance, &deviceCount, devices.data());
-
-	std::cout << "Devices deteted: " << deviceCount << '\n';
-	for (auto& deviceHandle : devices)
-	{
-		VkPhysicalDeviceProperties deviceProperties;
-		vkGetPhysicalDeviceProperties(deviceHandle, &deviceProperties);
-		std::cout << "Device name: " << deviceProperties.deviceName << '\n';
-		printf("\tAPI version: %d.%d.%d.%d\n", VK_API_VERSION_VARIANT(deviceProperties.apiVersion), VK_API_VERSION_MAJOR(deviceProperties.apiVersion), VK_API_VERSION_MINOR(deviceProperties.apiVersion), VK_API_VERSION_PATCH(deviceProperties.apiVersion));
-
-		if (deviceProperties.deviceType == VK_PHYSICAL_DEVICE_TYPE_DISCRETE_GPU)
-		{
-			m_PhysicalDevice.PhysicalDeviceHandle = deviceHandle;
-
-			uint32_t QFamyliesCount = 0;
-			vkGetPhysicalDeviceQueueFamilyProperties(deviceHandle, &QFamyliesCount, nullptr);
-
-			m_PhysicalDevice.QueuesFalimies.resize(QFamyliesCount);
-			vkGetPhysicalDeviceQueueFamilyProperties(deviceHandle, &QFamyliesCount, m_PhysicalDevice.QueuesFalimies.data());
-
-
-			for (auto& FamilyProperiy : m_PhysicalDevice.QueuesFalimies)
-			{
-				printf("\tNum queues: %d ", FamilyProperiy.queueCount);
-
-				VkQueueFlags Flags = FamilyProperiy.queueFlags;
-				printf("\tGFX %s, Compute %s, Transfer %s, Sparse binding %s\n",
-					(Flags & VK_QUEUE_GRAPHICS_BIT) ? "Yes" : "No",
-					(Flags & VK_QUEUE_COMPUTE_BIT) ? "Yes" : "No",
-					(Flags & VK_QUEUE_TRANSFER_BIT) ? "Yes" : "No",
-					(Flags & VK_QUEUE_SPARSE_BINDING_BIT) ? "Yes" : "No");
-			}
-			printf("\n");
-		}
-
-	}
-}
-
-void Renderer::CreateLogicalDevice()
-{
-	float queuePriority[] = {1.0f};
-
-	uint32_t baseQueue = m_PhysicalDevice.GetFamilyQueue(VK_QUEUE_GRAPHICS_BIT);
-	uint32_t presetQueue = m_PhysicalDevice.GetPresentQueue(m_Surface);
-
-	if (baseQueue == presetQueue)
-	{
-		LOG(INFO, "one que to rule all");
-	}
-
-	VkDeviceQueueCreateInfo queueCreateInfo =
-	{
-		.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO,
-		.pNext = nullptr,
-		.flags = 0,
-		.queueFamilyIndex = m_PhysicalDevice.GetFamilyQueue(VK_QUEUE_GRAPHICS_BIT),
-		.queueCount = 1,
-		.pQueuePriorities = &queuePriority[0]
-	};
-
-	std::vector<const char*> DevExtensions =
-	{
-		VK_KHR_SWAPCHAIN_EXTENSION_NAME,
-		VK_KHR_SHADER_DRAW_PARAMETERS_EXTENSION_NAME,
-	};
-
-	VkPhysicalDeviceFeatures deviceFeatures = { 0 };
-
-	VkDeviceCreateInfo deviceCreateInfo =
-	{
-		.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO,
-		.pNext = nullptr,
-		.flags = 0,
-		.queueCreateInfoCount = 1,
-		.pQueueCreateInfos = &queueCreateInfo,
-		.enabledLayerCount = 0,
-		.ppEnabledLayerNames = nullptr,
-		.enabledExtensionCount = (uint32_t)DevExtensions.size(),
-		.ppEnabledExtensionNames = DevExtensions.data(),
-		.pEnabledFeatures = &deviceFeatures
-	};
-
-	vkCreateDevice(m_PhysicalDevice.PhysicalDeviceHandle, &deviceCreateInfo, nullptr, &m_Device);
-
-	vkGetDeviceQueue(m_Device, queueCreateInfo.queueFamilyIndex, 0, &m_ComputeQueue);
-	vkGetDeviceQueue(m_Device, queueCreateInfo.queueFamilyIndex, 0, &m_Queue);
-	vkGetDeviceQueue(m_Device, presetQueue, 0, &m_PresentQueue);
-
-}
-
 void Renderer::CreateSwapChain()
 {
 	VkSurfaceCapabilitiesKHR SurfaceCapabilities;
-	vkGetPhysicalDeviceSurfaceCapabilitiesKHR(m_PhysicalDevice.PhysicalDeviceHandle, m_Surface, &SurfaceCapabilities);
+	vkGetPhysicalDeviceSurfaceCapabilitiesKHR(m_Device.physicalDevice, m_Surface, &SurfaceCapabilities);
 
 	uint32_t ImagesCount = SurfaceCapabilities.minImageCount + 1;
 	if (SurfaceCapabilities.maxImageCount > 0 && ImagesCount > SurfaceCapabilities.maxImageCount)
@@ -580,7 +489,7 @@ void Renderer::CreateSwapChain()
 	VkPresentModeKHR PresentMode = VK_PRESENT_MODE_FIFO_KHR;//alway suported (vsync on) in future chenge to Imidient mode (vsync off)
 	PresentMode = VK_PRESENT_MODE_IMMEDIATE_KHR; //vsync off
 
-	uint32_t queueFamily = m_PhysicalDevice.GetFamilyQueue(VK_QUEUE_GRAPHICS_BIT);
+	uint32_t queueFamily = Device::GetFamilyQueue(m_Device.physicalDevice, VK_QUEUE_GRAPHICS_BIT);
 	m_ImageExtend = SurfaceCapabilities.currentExtent;
 
 	LOG(WARNING, "SwapChain resize %u | %u", m_ImageExtend.width, m_ImageExtend.height);
@@ -725,7 +634,7 @@ void Renderer::CreateDescriptorSetLayout()
 	//Graphics
 	LayoutSpecification graphicsLayoutSpec =
 	{
-		.device = {m_Device, m_PhysicalDevice.PhysicalDeviceHandle},
+		.device = m_Device,
 		.stage = VK_SHADER_STAGE_VERTEX_BIT,
 		.types = {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER}
 		//uniform
@@ -735,7 +644,7 @@ void Renderer::CreateDescriptorSetLayout()
 	//Simulation
 	LayoutSpecification simulationLayoutSpec =
 	{
-		.device = {m_Device, m_PhysicalDevice.PhysicalDeviceHandle},
+		.device = m_Device,
 		.stage = VK_SHADER_STAGE_COMPUTE_BIT,
 		.types = {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE}
 		//uniform, particles, spacial, lookup, volumeImage
@@ -745,7 +654,7 @@ void Renderer::CreateDescriptorSetLayout()
 	//sorting
 	LayoutSpecification sortLayoutSpec =
 	{
-		.device = {m_Device, m_PhysicalDevice.PhysicalDeviceHandle},
+		.device = m_Device,
 		.stage = VK_SHADER_STAGE_COMPUTE_BIT,
 		.types = {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER}
 		//spatial, lookup
@@ -970,7 +879,7 @@ void Renderer::CreateComputePipeline()
 {
 	ComputePipelineSpecification gravitySpec =
 	{
-		.device = {m_Device, m_PhysicalDevice.PhysicalDeviceHandle},
+		.device = m_Device,
 		.shaderPath = "src\\Shaders\\Simulation\\simulation2D.spv",
 		.entryPoint = "ExternalForce",
 		.descriptorLayout = m_SimulationSetLayout.GetHandle(),
@@ -980,7 +889,7 @@ void Renderer::CreateComputePipeline()
 	
 	ComputePipelineSpecification densitySpec =
 	{
-		.device = {m_Device, m_PhysicalDevice.PhysicalDeviceHandle},
+		.device = m_Device,
 		.shaderPath = "src\\Shaders\\Simulation\\simulation2D.spv",
 		.entryPoint = "DensityStep",
 		.descriptorLayout = m_SimulationSetLayout.GetHandle(),
@@ -990,7 +899,7 @@ void Renderer::CreateComputePipeline()
 
 	ComputePipelineSpecification pressureSpec =
 	{
-		.device = {m_Device, m_PhysicalDevice.PhysicalDeviceHandle},
+		.device = m_Device,
 		.shaderPath = "src\\Shaders\\Simulation\\simulation2D.spv",
 		.entryPoint = "PressureStep",
 		.descriptorLayout = m_SimulationSetLayout.GetHandle(),
@@ -1000,7 +909,7 @@ void Renderer::CreateComputePipeline()
 
 	ComputePipelineSpecification viscositySpec =
 	{
-		.device = {m_Device, m_PhysicalDevice.PhysicalDeviceHandle},
+		.device = m_Device,
 		.shaderPath = "src\\Shaders\\Simulation\\simulation2D.spv",
 		.entryPoint = "ViscosityStep",
 		.descriptorLayout = m_SimulationSetLayout.GetHandle(),
@@ -1010,7 +919,7 @@ void Renderer::CreateComputePipeline()
 
 	ComputePipelineSpecification updateSpec =
 	{
-		.device = {m_Device, m_PhysicalDevice.PhysicalDeviceHandle},
+		.device = m_Device,
 		.shaderPath = "src\\Shaders\\Simulation\\simulation2D.spv",
 		.entryPoint = "UpdateStep",
 		.descriptorLayout = m_SimulationSetLayout.GetHandle(),
@@ -1020,7 +929,7 @@ void Renderer::CreateComputePipeline()
 
 	ComputePipelineSpecification sortSpec =
 	{
-		.device = {m_Device, m_PhysicalDevice.PhysicalDeviceHandle},
+		.device = m_Device,
 		.shaderPath = "src\\Shaders\\Sorting\\Sort.spv",
 		.entryPoint = "BitonicSort",
 		.descriptorLayout = m_SortSetLayout.GetHandle(),
@@ -1030,7 +939,7 @@ void Renderer::CreateComputePipeline()
 
 	ComputePipelineSpecification offsetSpec =
 	{
-		.device = {m_Device, m_PhysicalDevice.PhysicalDeviceHandle},
+		.device = m_Device,
 		.shaderPath = "src\\Shaders\\Sorting\\Sort.spv",
 		.entryPoint = "CalculateOffsets",
 		.descriptorLayout = m_SortSetLayout.GetHandle(),
@@ -1040,7 +949,7 @@ void Renderer::CreateComputePipeline()
 
 	ComputePipelineSpecification volumeSpec =
 	{
-		.device = {m_Device, m_PhysicalDevice.PhysicalDeviceHandle},
+		.device = m_Device,
 		.shaderPath = "src\\Shaders\\Rendering\\volume.spv",
 		.entryPoint = "main",
 		.descriptorLayout = m_SimulationSetLayout.GetHandle(),
@@ -1080,7 +989,7 @@ void Renderer::CreateComandPool()
 		.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
 		.pNext = nullptr,
 		.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT,
-		.queueFamilyIndex = m_PhysicalDevice.GetFamilyQueue(VK_QUEUE_GRAPHICS_BIT)
+		.queueFamilyIndex = Device::GetFamilyQueue(m_Device.physicalDevice, VK_QUEUE_GRAPHICS_BIT)
 	};
 
 	vkCreateCommandPool(m_Device, &commandPoolInfo, nullptr, &m_CommandPool);
@@ -1092,7 +1001,7 @@ void Renderer::CreateVertexBuffer()
 
 	BufferSpecification vertexSpec =
 	{
-		.device = {m_Device, m_PhysicalDevice.PhysicalDeviceHandle},
+		.device = m_Device,
 		.size = bufferSize,
 		.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
 		.properties = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT
@@ -1101,7 +1010,7 @@ void Renderer::CreateVertexBuffer()
 
 	BufferSpecification stagingSpec =
 	{
-		.device = {m_Device, m_PhysicalDevice.PhysicalDeviceHandle},
+		.device = m_Device,
 		.size = bufferSize,
 		.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
 		.properties = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
@@ -1120,7 +1029,7 @@ void Renderer::CreateIndexBuffer()
 
 	BufferSpecification indexSpec =
 	{
-		.device = {m_Device, m_PhysicalDevice.PhysicalDeviceHandle},
+		.device = m_Device,
 		.size = bufferSize,
 		.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
 		.properties = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT
@@ -1129,7 +1038,7 @@ void Renderer::CreateIndexBuffer()
 
 	BufferSpecification stagingSpec =
 	{
-		.device = {m_Device, m_PhysicalDevice.PhysicalDeviceHandle},
+		.device = m_Device,
 		.size = bufferSize,
 		.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
 		.properties = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
@@ -1148,7 +1057,7 @@ void Renderer::CreateInstanceBuffer()
 
 	BufferSpecification InstanceSpec =
 	{
-		.device = {m_Device, m_PhysicalDevice.PhysicalDeviceHandle},
+		.device = m_Device,
 		.size = bufferSize,
 		.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
 		.properties = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT
@@ -1157,7 +1066,7 @@ void Renderer::CreateInstanceBuffer()
 
 	BufferSpecification stagingSpec =
 	{
-		.device = {m_Device, m_PhysicalDevice.PhysicalDeviceHandle},
+		.device = m_Device,
 		.size = bufferSize,
 		.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
 		.properties = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
@@ -1171,7 +1080,7 @@ void Renderer::CreateInstanceBuffer()
 
 	BufferSpecification SpatialSpec =
 	{
-		.device = {m_Device, m_PhysicalDevice.PhysicalDeviceHandle},
+		.device = m_Device,
 		.size = sizeof(uint32_t) * instances.size() * 2,//key, Particle index
 		.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
 		.properties = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT
@@ -1180,7 +1089,7 @@ void Renderer::CreateInstanceBuffer()
 
 	BufferSpecification LookupSpec =
 	{
-		.device = {m_Device, m_PhysicalDevice.PhysicalDeviceHandle},
+		.device = m_Device,
 		.size = sizeof(uint32_t) * instances.size(),
 		.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
 		.properties = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT
@@ -1194,7 +1103,7 @@ void Renderer::CreateUniformBuffers()
 
 	BufferSpecification uniformSpec =
 	{
-		.device = {m_Device, m_PhysicalDevice.PhysicalDeviceHandle},
+		.device = m_Device,
 		.size = sizeof(UniformBufferObject),
 		.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
 		.properties = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
@@ -1209,7 +1118,7 @@ void Renderer::CreateUniformBuffers()
 
 	BufferSpecification simulatinUBO =
 	{
-		.device = {m_Device, m_PhysicalDevice.PhysicalDeviceHandle},
+		.device = m_Device,
 		.size = sizeof(SimulationUBO),
 		.usage = VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
 		.properties = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
@@ -1221,7 +1130,7 @@ void Renderer::CreateUniformBuffers()
 //create pool for uniform buffers and SSBO
 void Renderer::CreateDescriptorPool()
 {
-	VkDescriptorPoolSize poolSizes[3] =
+	VkDescriptorPoolSize poolSizes[4] =
 	{
 		{
 			.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
@@ -1234,6 +1143,10 @@ void Renderer::CreateDescriptorPool()
 		{
 			.type = VK_DESCRIPTOR_TYPE_STORAGE_IMAGE,
 			.descriptorCount = MAX_IN_FLIGHT_FRAMES
+		},
+		{
+			.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
+			.descriptorCount = 1
 		}
 	};
 
@@ -1308,7 +1221,7 @@ void Renderer::InitRayTracing()
 {
 	ImageSpecification ScreenSpec =
 	{
-		.device = {m_Device, m_PhysicalDevice.PhysicalDeviceHandle},
+		.device = m_Device,
 		.type = VK_IMAGE_TYPE_2D,
 		.size = {m_ImageExtend.width, m_ImageExtend.height, 1},
 		.format = VK_FORMAT_R32G32B32A32_SFLOAT,
@@ -1321,7 +1234,7 @@ void Renderer::InitRayTracing()
 
 	LayoutSpecification RayTracingLayoutSpec =
 	{
-		.device = {m_Device, m_PhysicalDevice.PhysicalDeviceHandle},
+		.device = m_Device,
 		.stage = VK_SHADER_STAGE_COMPUTE_BIT,
 		.types = {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER}
 		//image, Density, cameraUBO
@@ -1330,7 +1243,7 @@ void Renderer::InitRayTracing()
 
 	ComputePipelineSpecification RayTracingSpec =
 	{
-		.device = {m_Device, m_PhysicalDevice.PhysicalDeviceHandle},
+		.device = m_Device,
 		.shaderPath = "src\\Shaders\\Rendering\\basic.spv",
 		.entryPoint = "main",
 		.descriptorLayout = m_RayTracingLayout.GetHandle(),
@@ -1618,7 +1531,7 @@ void Renderer::RestartSimulation()
 
 	BufferSpecification stagingSpec =
 	{
-		.device = {m_Device, m_PhysicalDevice.PhysicalDeviceHandle},
+		.device = m_Device,
 		.size = bufferSize,
 		.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
 		.properties = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
@@ -1819,30 +1732,4 @@ void Renderer::RecreateSwapChain()
 	m_DepthImage.Resize(m_ImageExtend);
 
 	CreateFramebuffers();
-}
-
-uint32_t Renderer::PhysicalDevice::GetFamilyQueue(VkQueueFlags queueType)
-{
-	for (size_t i = 0; i < QueuesFalimies.size(); i++)
-	{
-		if (QueuesFalimies[i].queueFlags & queueType)
-		{
-			return i;
-		}
-	}
-	return 0;
-}
-
-uint32_t Renderer::PhysicalDevice::GetPresentQueue(VkSurfaceKHR surface)
-{
-	for (size_t i = 0; i < QueuesFalimies.size(); i++)
-	{
-		VkBool32 presentSupport = false;
-		vkGetPhysicalDeviceSurfaceSupportKHR(PhysicalDeviceHandle, i, surface, &presentSupport);
-		if (presentSupport)
-		{
-			return i;
-		}
-	}
-	return 0;
 }

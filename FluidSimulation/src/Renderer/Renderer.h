@@ -9,19 +9,12 @@
 #include "Buffer.h"
 #include "ComputePipeline.h"
 #include "DescriptorLayout.h"
+#include "Device.h"
 
 class Camera;
 
 class Renderer
 {
-	struct PhysicalDevice
-	{
-		VkPhysicalDevice PhysicalDeviceHandle = VK_NULL_HANDLE;
-		std::vector<VkQueueFamilyProperties> QueuesFalimies;
-
-		uint32_t GetFamilyQueue(VkQueueFlags queueType);
-		uint32_t GetPresentQueue(VkSurfaceKHR surface);
-	};
 
 public:
 	Renderer() {};
@@ -54,13 +47,19 @@ public:
 	//Resize function
 	void RecreateSwapChain();
 
+
+	//geter function for ImGUI
+	VkInstance GetInstance() const { return m_Instance; };
+	Device GetDevice() const { return m_Device; };
+	uint32_t GetQueueFamily() const { return m_QueueFamily; };
+	VkQueue GetQueue() const { return m_Queue; };
+	VkDescriptorPool GetDescriptorPool() const { return m_DescriptorPool; };
+
 private:
 
 	void CreateInstance(const std::string& applicationName);
 	void CreateDebugCallback();
 	void CreateSurface(const Scope<Window>& window);
-	void PickPhysicalDevice();
-	void CreateLogicalDevice();
 	void CreateSwapChain();
 	void CreateRenderPass();
 	void CreateDescriptorSetLayout();
@@ -108,8 +107,9 @@ private:
 	VkInstance m_Instance = VK_NULL_HANDLE;
 	VkDebugUtilsMessengerEXT m_DebugMessenger = VK_NULL_HANDLE;
 	VkSurfaceKHR m_Surface = VK_NULL_HANDLE;
-	PhysicalDevice m_PhysicalDevice;
-	VkDevice m_Device = VK_NULL_HANDLE;
+	Device m_Device;
+
+	uint32_t m_QueueFamily = -1;
 	VkQueue m_ComputeQueue = VK_NULL_HANDLE;
 	VkQueue m_Queue = VK_NULL_HANDLE;
 	VkQueue m_PresentQueue = VK_NULL_HANDLE;
