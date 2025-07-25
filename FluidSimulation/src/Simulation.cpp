@@ -1,6 +1,7 @@
 #include "Simulation.h"
 #include "Core/Input.h"
 #include <glm/gtx/quaternion.hpp>
+#include <imgui/imgui.h>
 
 Simulation::Simulation(const ApplicationSpecification& spec)
 	:Application(spec)
@@ -45,6 +46,48 @@ void Simulation::OnRender()
 		return;
 
 	m_Renderer->RenderFrame(0.1f);
+}
+
+void Simulation::OnGUIRender()
+{
+	ImGui::Begin("Controls");
+	ImGui::Checkbox("Slowmotion", &bSlowmo);
+	if (ImGui::Button(bPoused ? "Play" : "Stop"))
+	{
+		bPoused = !bPoused;
+	}
+
+
+	ImGui::SeparatorText("Camera");
+
+	glm::vec3 CameraPos = m_Camera->GetPosition();
+	if (ImGui::DragFloat3("Camera position", &CameraPos.x))
+	{
+		LOG(DEBUG, "Camera Update");
+		m_Camera->SetPosition(CameraPos);
+	}
+
+	glm::vec3 CameraForward = m_Camera->GetForward();
+	if (ImGui::DragFloat3("Camera forward", &CameraForward.x))
+	{
+		m_Camera->SetForward(CameraForward);
+	}
+
+	float FOV = m_Camera->GetFOV();
+	if (ImGui::DragFloat("FOV", &FOV))
+	{
+		FOV = std::max(1.f, FOV);
+		m_Camera->SetFOV(FOV);
+	}
+
+	ImGui::SeparatorText("Rendering");
+	static float stepSize = 0.02f;
+	if (ImGui::DragFloat("StepSize", &stepSize, 0.001f, 0.001f, 0.1f))
+	{
+		m_Renderer->UpdateRenderSetings(stepSize);
+	}
+
+	ImGui::End();
 }
 
 bool Simulation::OnResize(WindowResizeEvent& e)

@@ -9,6 +9,7 @@
 #include "Buffer.h"
 #include "ComputePipeline.h"
 #include "DescriptorLayout.h"
+#include "SwapChain.h"
 #include "Device.h"
 
 class Camera;
@@ -21,8 +22,8 @@ public:
 	~Renderer();
 
 	void Init(const std::string& applicationName, const Scope<Window>& window);
+	void Wait() const;
 
-	void recordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t imageIndex);
 	//temporary solution
 
 	void Begin(VkCommandBuffer commandBuffer);
@@ -31,8 +32,10 @@ public:
 	void SimulationStep(float deltaTime);
 	void RestartSimulation();
 	void RenderFrame(float deltaTime);
+	void Present();
 
 	void UpdateCamera(const Camera& camera);
+	void UpdateRenderSetings(float stepSize);
 	//void updateUniformBuffer(float deltaTime, uint32_t currentImage);
 
 	//Fluid simlualtion steps
@@ -44,40 +47,32 @@ public:
 	//5. update positions + colisions resolve
 	void RunSortStep(ComputePipeline& sortStep, uint32_t size, uint32_t algorithm);
 
-	//Resize function
-	void RecreateSwapChain();
-
-
 	//geter function for ImGUI
 	VkInstance GetInstance() const { return m_Instance; };
 	Device GetDevice() const { return m_Device; };
 	uint32_t GetQueueFamily() const { return m_QueueFamily; };
 	VkQueue GetQueue() const { return m_Queue; };
 	VkDescriptorPool GetDescriptorPool() const { return m_DescriptorPool; };
+	VkRenderPass GetRenderPass() const { return m_GUIPass; };
 
+	friend void RenderImGui(Scope<Renderer>& renderer);
 private:
 
 	void CreateInstance(const std::string& applicationName);
 	void CreateDebugCallback();
 	void CreateSurface(const Scope<Window>& window);
-	void CreateSwapChain();
-	void CreateRenderPass();
 	void CreateDescriptorSetLayout();
 
-	void CreateGraphicsPipeline();
 	void CreateComputePipeline();
 
-	void CreateFramebuffers();
 	void CreateComandPool();
 
-	void CreateVertexBuffer();
-	void CreateIndexBuffer();
 	void CreateInstanceBuffer();
 	void CreateUniformBuffers();
 
 	void CreateDescriptorPool();
+	void CreateGUIPass();
 
-	void CreateDescriptorSets();
 	void CreateComputeDescriptorSets();
 	void CreateSortDescriptorSets();
 
@@ -86,23 +81,18 @@ private:
 	void CreateCommandBuffer();
 	void CreateSyncObjects();
 
-	//void CreateBuffer(VkDeviceSize size, VkBufferUsageFlags usage, VkMemoryPropertyFlags properties, VkBuffer& buffer, VkDeviceMemory& bufferMemor);
-
 	void CopyBuffer(VkBuffer srcBuffer, VkBuffer dstBuffer, VkDeviceSize size);
-
-	void ClearSwapChain();
 
 private:
 	const uint32_t MAX_IN_FLIGHT_FRAMES = 1;
 	//chek for suport of MSAA
-	const VkSampleCountFlagBits c_MSAACount = VK_SAMPLE_COUNT_2_BIT;
+	const VkSampleCountFlagBits c_MSAACount = VK_SAMPLE_COUNT_1_BIT;
 	//chek if phisical device suport specific format
 	const VkSurfaceFormatKHR c_SwapChainFormat =
 	{
-		.format = VK_FORMAT_R8G8B8A8_SRGB,
+		.format = VK_FORMAT_R8G8B8A8_UNORM,//VK_FORMAT_R8G8B8A8_SRGB,
 		.colorSpace = VK_COLOR_SPACE_SRGB_NONLINEAR_KHR,
 	};
-
 
 	VkInstance m_Instance = VK_NULL_HANDLE;
 	VkDebugUtilsMessengerEXT m_DebugMessenger = VK_NULL_HANDLE;
@@ -114,21 +104,12 @@ private:
 	VkQueue m_Queue = VK_NULL_HANDLE;
 	VkQueue m_PresentQueue = VK_NULL_HANDLE;
 
+	SwapChain m_SwapChain;
 	VkExtent2D m_ImageExtend;
-
-	VkSwapchainKHR m_Swapchain = VK_NULL_HANDLE;
-	std::vector<VkImage> m_Images;
-	std::vector<VkImageView> m_ImageViews;
+	VkRenderPass m_GUIPass = VK_NULL_HANDLE;
 	std::vector<VkFramebuffer> m_Framebuffers;
 
-	Image m_DepthImage;
-	Image m_MSAAImage;
-	
-	VkRenderPass m_RenderPass = VK_NULL_HANDLE;
 
-	//buffers
-	Buffer m_VertexBuffer;
-	Buffer m_IndexBuffer;
 	Buffer m_InstanceBuffer;
 	Buffer m_SpatialBuffer;
 	Buffer m_LookUpBuffer;
@@ -150,7 +131,6 @@ private:
 	ComputePipeline m_VolumeStep;
 
 	//sorting
-	//VkDescriptorSetLayout m_SortDescriptorSetLayout = VK_NULL_HANDLE;
 	DescriptorLayout m_SortSetLayout;
 	std::vector<VkDescriptorSet> m_SortDescriptorSets;
 
@@ -164,18 +144,7 @@ private:
 	VkDescriptorSet m_RayTracingSet;
 
 	ComputePipeline m_RayTracing;
-	//Image m_SurfaceImage;
-	//ComputePipeline m_SurfaceStep;
-	//ComputePipeline m_MarchinCubeStep;
 
-	//VkDescriptorSetLayout m_DescriptorSetLayout = VK_NULL_HANDLE;
-	DescriptorLayout m_GraphicsSetLayout;
-	std::vector<VkDescriptorSet> m_DescriptorSets;
-
-	VkPipelineLayout m_PipelineLayout = VK_NULL_HANDLE;
-	VkPipeline m_GraphicsPipeline = VK_NULL_HANDLE;
-
-	
 	VkCommandPool m_CommandPool = VK_NULL_HANDLE;
 	std::vector<VkCommandBuffer> m_CommandBuffers;// = VK_NULL_HANDLE;
 

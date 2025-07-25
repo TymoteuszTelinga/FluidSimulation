@@ -11,57 +11,6 @@
 #include "Camera.h"
 #include "Utilities.h"
 
-static struct Vertex
-{
-	glm::vec3 position;
-	glm::vec2 uv;
-
-	static VkVertexInputBindingDescription GetBindingDescription()
-	{
-		VkVertexInputBindingDescription description =
-		{
-			.binding = 0,
-			.stride = sizeof(Vertex),
-			.inputRate = VK_VERTEX_INPUT_RATE_VERTEX
-
-		};
-		return description;
-	}
-
-	static std::vector<VkVertexInputAttributeDescription> GetAtributeDescription()
-	{
-		std::vector<VkVertexInputAttributeDescription> descriptions;
-
-		//position attrib
-		{
-			VkVertexInputAttributeDescription VertexAttribute =
-			{
-				.location = 0,
-				.binding = 0,
-				.format = VK_FORMAT_R32G32B32_SFLOAT,
-				.offset = offsetof(Vertex, position)
-			};
-
-			descriptions.push_back(VertexAttribute);
-		}
-
-		//UV attrib
-		{
-			VkVertexInputAttributeDescription VertexAttribute =
-			{
-				.location = 1,
-				.binding = 0,
-				.format = VK_FORMAT_R32G32_SFLOAT,
-				.offset = offsetof(Vertex, uv)
-			};
-
-			descriptions.push_back(VertexAttribute);
-		}
-
-		return descriptions;
-	}
-};
-
 static struct Instance
 {
 	alignas(16) glm::vec3 position;
@@ -115,48 +64,6 @@ static struct Instance
 	}
 };
 
-static const float PS = 0.05f;
-static const std::vector<Vertex> vertices = 
-{
-	{{-PS, -PS, 0.5f}, {0.f, 1.f}},
-	{{ PS, -PS, 0.5f}, {1.f, 1.f}},
-	{{ PS,  PS, 0.5f}, {1.f, 0.f}},
-	{{-PS,  PS, 0.5f}, {0.f, 0.f}},
-};
-
-static const std::vector<Vertex> cubeVert =
-{
-	{{ 1.f,  1.f, -1.f}, {0.f, 0.f}},
-	{{ 1.f, -1.f, -1.f}, {0.f, 0.f}},
-	{{ 1.f,  1.f,  1.f}, {0.f, 0.f}},
-	{{ 1.f, -1.f,  1.f}, {0.f, 0.f}},
-	{{-1.f,  1.f, -1.f}, {0.f, 0.f}},
-	{{-1.f, -1.f, -1.f}, {0.f, 0.f}},
-	{{-1.f,  1.f,  1.f}, {0.f, 0.f}},
-	{{-1.f, -1.f,  1.f}, {0.f, 0.f}},
-};
-
-static const std::vector<uint16_t> cubveInd =
-{
-	4, 2, 0,
-	2, 7, 3,
-	6, 5, 7,
-	1, 7, 5,
-	0, 3, 1,
-	4, 1, 5,
-	4, 6, 2,
-	2, 6, 7,
-	6, 4, 5,
-	1, 3, 7,
-	0, 2, 3,
-	4, 0, 1,
-};
-
-static const std::vector<uint16_t> indices = 
-{
-	0, 1, 2, 2, 3, 0
-};
-
 static std::vector<Instance> instances;
 
 static struct UniformBufferObject
@@ -165,6 +72,7 @@ static struct UniformBufferObject
 	alignas(16) glm::mat4 view  = glm::mat4(1.f);
 	alignas(16) glm::mat4 proj  = glm::mat4(1.f);
 	alignas(16) glm::vec3 cameraPos = glm::vec3(0.f);
+	float StepSize = 0.02f;
 } s_RenderingUBO;
 
 static struct SimulationUBO
@@ -181,7 +89,7 @@ static struct SimulationUBO
 
 Renderer::~Renderer()
 {
-	vkDeviceWaitIdle(m_Device);
+	Wait();
 
 	for (auto& semaphore : m_ImageAvailableSemaphores)
 	{
@@ -198,13 +106,10 @@ Renderer::~Renderer()
 
 	vkDestroyDescriptorPool(m_Device, m_DescriptorPool, nullptr);
 
-	m_GraphicsSetLayout.Free();
 	m_SimulationSetLayout.Free();
 	m_SortSetLayout.Free();
 	m_RayTracingLayout.Free();
 
-	m_VertexBuffer.Free();
-	m_IndexBuffer.Free();
 	m_InstanceBuffer.Free();
 	m_SpatialBuffer.Free();
 	m_LookUpBuffer.Free();
@@ -229,17 +134,15 @@ Renderer::~Renderer()
 
 	m_RayTracing.Free();
 
-	vkDestroyPipeline(m_Device, m_GraphicsPipeline, nullptr);
-	vkDestroyPipelineLayout(m_Device, m_PipelineLayout, nullptr);
+	//ClearSwapChain();
+	m_SwapChain.Free();
+	vkDestroyRenderPass(m_Device, m_GUIPass, nullptr);
+	for (auto& framebuffer : m_Framebuffers)
+	{
+		vkDestroyFramebuffer(m_Device, framebuffer, nullptr);
+	}
 
-	vkDestroyRenderPass(m_Device, m_RenderPass, nullptr);
-
-	ClearSwapChain();
-
-	m_MSAAImage.Free();
-	m_DepthImage.Free();
 	m_DensityVolume.Free();
-	//m_SurfaceImage.Free();
 	m_ScreenImage.Free();
 
 	vkDestroyDevice(m_Device, nullptr);
@@ -258,9 +161,6 @@ Renderer::~Renderer()
 void Renderer::Init(const std::string& applicationName, const Scope<Window>& window)
 {
 	instances.clear();
-	/*float x = -7.0f;
-	float y = -4.0f;*/
-	s_RenderingUBO.proj = glm::orthoLH_ZO(-s_SimUBO.simulationWidth - 1.f, s_SimUBO.simulationWidth + 1.f, -s_SimUBO.simulationHeight - 1.f, s_SimUBO.simulationHeight + 1.f, 0.0f, 1.f);
 
 	float minZ = 0.f;
 	float maxZ = 0.f;
@@ -282,16 +182,6 @@ void Renderer::Init(const std::string& applicationName, const Scope<Window>& win
 		x += 0.f;
 		y += s_SimUBO.simulationHeight - s_SimUBO.simulationDepth;
 		z += 0.f;
-		//y = 0.f;
-		/*x += 0.1f;
-		if (x >= 7.0f)
-		{
-			x = -7.0f;
-			x += 0.1f;
-			y += 0.1f;
-		}*/
-
-
 
 		Instance particle;
 		particle.position = glm::vec3(x, y, z);
@@ -301,10 +191,8 @@ void Renderer::Init(const std::string& applicationName, const Scope<Window>& win
 		instances.push_back(particle);
 	}
 
-
 	CreateInstance(applicationName);
 	CreateDebugCallback();
-
 	CreateSurface(window);
 
 	m_Device = Device::CreateDivice(m_Instance);
@@ -314,39 +202,23 @@ void Renderer::Init(const std::string& applicationName, const Scope<Window>& win
 	uint32_t PresentQueue = Device::GetPresentQueue(m_Device.physicalDevice, m_Surface);
 	vkGetDeviceQueue(m_Device, PresentQueue, 0, &m_PresentQueue);
 
-	CreateSwapChain();
-	CreateRenderPass();
+	//CreateSwapChain();
+	SwapChainSpecification SwapchainSpec =
+	{
+		.device = m_Device,
+		.surface = m_Surface,
+		.format = c_SwapChainFormat,
+		.imagesCount = 3,
+		.queueFamily = m_QueueFamily
+	};
+	m_SwapChain.Init(SwapchainSpec);
+	m_ImageExtend = m_SwapChain.GetExtend();
+	CreateGUIPass();
+
 	CreateDescriptorSetLayout();
-	CreateGraphicsPipeline();
 	CreateComputePipeline();
 
 	CreateComandPool();
-
-	ImageSpecification MSAASpec =
-	{
-		.device = m_Device,
-		.type = VK_IMAGE_TYPE_2D,
-		.size = {m_ImageExtend.width, m_ImageExtend.height, 1},
-		.format = c_SwapChainFormat.format,
-		.usage = VK_IMAGE_USAGE_TRANSIENT_ATTACHMENT_BIT | VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT,
-		.aspectFlags = VK_IMAGE_ASPECT_COLOR_BIT,
-		.samples = c_MSAACount,
-		.tiling = VK_IMAGE_TILING_OPTIMAL
-	};
-	m_MSAAImage.Init(MSAASpec);
-
-	ImageSpecification depthSpec =
-	{
-		.device = m_Device,
-		.type = VK_IMAGE_TYPE_2D,
-		.size = {m_ImageExtend.width, m_ImageExtend.height, 1},
-		.format = VK_FORMAT_D32_SFLOAT,
-		.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT,
-		.aspectFlags = VK_IMAGE_ASPECT_DEPTH_BIT,
-		.samples = c_MSAACount,
-		.tiling = VK_IMAGE_TILING_OPTIMAL
-	};
-	m_DepthImage.Init(depthSpec);
 
 	ImageSpecification imageSpec =
 	{
@@ -361,16 +233,11 @@ void Renderer::Init(const std::string& applicationName, const Scope<Window>& win
 	};
 	m_DensityVolume.Init(imageSpec);
 
-	CreateFramebuffers();
-
-	CreateVertexBuffer();
-	CreateIndexBuffer();
 	CreateInstanceBuffer();
 	CreateUniformBuffers();
 
 	CreateDescriptorPool();
 
-	CreateDescriptorSets();
 	CreateComputeDescriptorSets();
 	CreateSortDescriptorSets();
 
@@ -380,6 +247,11 @@ void Renderer::Init(const std::string& applicationName, const Scope<Window>& win
 	CreateSyncObjects();
 
 	LOG(DEBUG, "Active Particles: %u", s_SimUBO.particlesCount);
+}
+
+void Renderer::Wait() const
+{
+	vkDeviceWaitIdle(m_Device);
 }
 
 void Renderer::CreateInstance(const std::string& applicationName)
@@ -475,172 +347,8 @@ void Renderer::CreateSurface(const Scope<Window>& window)
 	}
 }
 
-void Renderer::CreateSwapChain()
-{
-	VkSurfaceCapabilitiesKHR SurfaceCapabilities;
-	vkGetPhysicalDeviceSurfaceCapabilitiesKHR(m_Device.physicalDevice, m_Surface, &SurfaceCapabilities);
-
-	uint32_t ImagesCount = SurfaceCapabilities.minImageCount + 1;
-	if (SurfaceCapabilities.maxImageCount > 0 && ImagesCount > SurfaceCapabilities.maxImageCount)
-	{
-		ImagesCount = SurfaceCapabilities.maxImageCount;
-	}
-
-	VkPresentModeKHR PresentMode = VK_PRESENT_MODE_FIFO_KHR;//alway suported (vsync on) in future chenge to Imidient mode (vsync off)
-	PresentMode = VK_PRESENT_MODE_IMMEDIATE_KHR; //vsync off
-
-	uint32_t queueFamily = Device::GetFamilyQueue(m_Device.physicalDevice, VK_QUEUE_GRAPHICS_BIT);
-	m_ImageExtend = SurfaceCapabilities.currentExtent;
-
-	LOG(WARNING, "SwapChain resize %u | %u", m_ImageExtend.width, m_ImageExtend.height);
-
-
-	VkSwapchainCreateInfoKHR SwapChainCreateInfo =
-	{
-		.sType = VK_STRUCTURE_TYPE_SWAPCHAIN_CREATE_INFO_KHR,
-		.pNext = nullptr,
-		.flags = 0,
-		.surface = m_Surface,
-		.minImageCount = ImagesCount,
-		.imageFormat = c_SwapChainFormat.format,
-		.imageColorSpace = c_SwapChainFormat.colorSpace,
-		.imageExtent = m_ImageExtend,
-		.imageArrayLayers = 1,
-		.imageUsage = VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT,//VK_IMAGE_USAGE_STORAGE_BIT
-		.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE,
-		.queueFamilyIndexCount = 1,
-		.pQueueFamilyIndices = &queueFamily,
-		.preTransform = SurfaceCapabilities.currentTransform,
-		.compositeAlpha = VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR,
-		.presentMode = PresentMode,
-		.clipped = VK_TRUE
-	};
-
-	vkCreateSwapchainKHR(m_Device, &SwapChainCreateInfo, nullptr, &m_Swapchain);
-
-	m_Images.resize(ImagesCount);
-	vkGetSwapchainImagesKHR(m_Device, m_Swapchain, &ImagesCount, m_Images.data());
-	m_Images.resize(ImagesCount);
-	m_ImageViews.resize(ImagesCount);
-	
-	for (size_t i = 0; i < m_Images.size(); i++)
-	{
-		m_ImageViews[i] = Image::CreateImageView(m_Device, m_Images[i], VK_IMAGE_VIEW_TYPE_2D, c_SwapChainFormat.format, VK_IMAGE_ASPECT_COLOR_BIT);
-	}
-
-}
-
-void Renderer::CreateRenderPass()
-{
-	//msaa color attachment
-	VkAttachmentDescription colorAttachment =
-	{
-		.flags = 0,
-		.format = c_SwapChainFormat.format,
-		.samples = c_MSAACount,
-		.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
-		.storeOp = VK_ATTACHMENT_STORE_OP_STORE,
-		.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
-		.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
-		.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
-		.finalLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL
-	};
-
-	VkAttachmentReference colorAttachmentRef =
-	{
-		.attachment = 0,
-		.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL
-	};
-
-	VkAttachmentDescription depthAttachment =
-	{
-		.flags = 0,
-		.format = VK_FORMAT_D32_SFLOAT,//get depth orrmat from image
-		.samples = c_MSAACount,
-		.loadOp = VK_ATTACHMENT_LOAD_OP_CLEAR,
-		.storeOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
-		.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
-		.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
-		.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
-		.finalLayout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL
-	};
-
-	VkAttachmentReference depthAttachmnetRef =
-	{
-		.attachment = 1,
-		.layout = VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL
-	};
-
-	//non mssaa color attachment
-	VkAttachmentDescription colorAttachmentResolve =
-	{
-		.flags = 0,
-		.format = c_SwapChainFormat.format,
-		.samples = VK_SAMPLE_COUNT_1_BIT,
-		.loadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
-		.storeOp = VK_ATTACHMENT_STORE_OP_STORE,
-		.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
-		.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
-		.initialLayout = VK_IMAGE_LAYOUT_UNDEFINED,
-		.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR
-	};
-
-	VkAttachmentReference colorAttachmentResolveRef =
-	{
-		.attachment = 2,
-		.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL
-	};
-
-	VkSubpassDescription subpass =
-	{
-		.flags = 0,
-		.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS,
-		.colorAttachmentCount = 1,
-		.pColorAttachments = &colorAttachmentRef,
-		.pResolveAttachments = &colorAttachmentResolveRef,
-		.pDepthStencilAttachment = &depthAttachmnetRef
-	};
-	
-	VkSubpassDependency dependency =
-	{
-		.srcSubpass = VK_SUBPASS_EXTERNAL,
-		.dstSubpass = 0,
-		.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT,
-		.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT,
-		.srcAccessMask = 0,
-		.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT
-	};
-
-	VkAttachmentDescription attachments[3] = {colorAttachment, depthAttachment, colorAttachmentResolve};
-
-	VkRenderPassCreateInfo renderPassInfo =
-	{
-		.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO,
-		.pNext = nullptr,
-		.flags = 0,
-		.attachmentCount = 3,
-		.pAttachments = attachments,
-		.subpassCount = 1,
-		.pSubpasses = &subpass,
-		.dependencyCount = 1,
-		.pDependencies = &dependency
-	};
-
-	vkCreateRenderPass(m_Device, &renderPassInfo, nullptr, &m_RenderPass);
-}
-
 void Renderer::CreateDescriptorSetLayout()
 {
-	//Graphics
-	LayoutSpecification graphicsLayoutSpec =
-	{
-		.device = m_Device,
-		.stage = VK_SHADER_STAGE_VERTEX_BIT,
-		.types = {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER}
-		//uniform
-	};
-	m_GraphicsSetLayout.Init(graphicsLayoutSpec);
-
 	//Simulation
 	LayoutSpecification simulationLayoutSpec =
 	{
@@ -660,219 +368,6 @@ void Renderer::CreateDescriptorSetLayout()
 		//spatial, lookup
 	};
 	m_SortSetLayout.Init(sortLayoutSpec);
-
-}
-
-void Renderer::CreateGraphicsPipeline()
-{
-	//Sahder creation
-	VkShaderModule vertShaderModule = Utilites::CreateShaderModule(m_Device, "src\\Shaders\\vert.spv");
-	VkShaderModule fragShaderModule = Utilites::CreateShaderModule(m_Device, "src\\Shaders\\frag.spv");
-
-	VkPipelineShaderStageCreateInfo vertShaderStageInfo =
-	{
-		.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
-		.pNext = nullptr,
-		.flags = 0,
-		.stage = VK_SHADER_STAGE_VERTEX_BIT,
-		.module = vertShaderModule,
-		.pName = "main"
-	};
-
-	VkPipelineShaderStageCreateInfo fragShaderStageInfo =
-	{
-		.sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO,
-		.pNext = nullptr,
-		.flags = 0,
-		.stage = VK_SHADER_STAGE_FRAGMENT_BIT,
-		.module = fragShaderModule,
-		.pName = "main"
-	};
-
-	VkPipelineShaderStageCreateInfo shaderStages[] = { vertShaderStageInfo, fragShaderStageInfo };
-
-	//PipeLineDefinicion
-	VkVertexInputBindingDescription VertexBinding[] = {Vertex::GetBindingDescription(), Instance::GetBindingDescription()};
-	auto VertexAttributes = Vertex::GetAtributeDescription();
-	auto InstanceAttributes = Instance::GetAtributeDescription();
-	VertexAttributes.insert(VertexAttributes.end(), InstanceAttributes.begin(), InstanceAttributes.end());
-
-	VkPipelineVertexInputStateCreateInfo vertexInputInfo =
-	{
-		.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO,
-		.pNext = nullptr,
-		.flags = 0,
-		.vertexBindingDescriptionCount = 2,
-		.pVertexBindingDescriptions = VertexBinding,
-		.vertexAttributeDescriptionCount = (uint32_t)VertexAttributes.size(),
-		.pVertexAttributeDescriptions = VertexAttributes.data(),
-	};
-
-	VkPipelineInputAssemblyStateCreateInfo inputAssemblyInfo =
-	{
-		.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO,
-		.pNext = nullptr,
-		.flags = 0,
-		.topology = VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST,
-		.primitiveRestartEnable = VK_FALSE
-	};
-
-	std::vector<VkDynamicState> dynamicStates = { VK_DYNAMIC_STATE_VIEWPORT, VK_DYNAMIC_STATE_SCISSOR };
-
-	VkPipelineDynamicStateCreateInfo dynamicStateInfo =
-	{
-		.sType = VK_STRUCTURE_TYPE_PIPELINE_DYNAMIC_STATE_CREATE_INFO,
-		.pNext = nullptr,
-		.flags = 0,
-		.dynamicStateCount = (uint32_t)dynamicStates.size(),
-		.pDynamicStates = dynamicStates.data()
-	};
-
-	//potencialy to delete set up at runtime
-	VkViewport viewport =
-	{
-		.x = 0.f,
-		.y = 0.f,
-		.width = (float)m_ImageExtend.width,
-		.height = (float)m_ImageExtend.height,
-		.minDepth = 0.f,
-		.maxDepth = 1.f,
-	};
-
-	//potencialy to delete set up at runtime
-	//stencil???
-	VkRect2D scissor = 
-	{
-		.offset = { 0, 0 },
-		.extent = m_ImageExtend
-	};
-
-	VkPipelineViewportStateCreateInfo viewportStateInfo =
-	{
-		.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO,
-		.pNext = nullptr,
-		.flags = 0,
-		.viewportCount = 1,
-		.pViewports = &viewport,
-		.scissorCount = 1,
-		.pScissors = &scissor
-	};
-
-	VkPipelineRasterizationStateCreateInfo rasterizationInfo =
-	{
-		.sType = VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO,
-		.pNext = nullptr,
-		.flags = 0,
-		.depthClampEnable = VK_FALSE,
-		.rasterizerDiscardEnable = VK_FALSE,
-		.polygonMode = VK_POLYGON_MODE_FILL,
-		.cullMode =  VK_CULL_MODE_BACK_BIT,// VK_CULL_MODE_NONE, //
-		.frontFace = VK_FRONT_FACE_COUNTER_CLOCKWISE,
-		.depthBiasEnable = VK_FALSE,
-		.depthBiasConstantFactor = 0.f,
-		.depthBiasClamp = 0.f,
-		.depthBiasSlopeFactor = 0.f,
-		.lineWidth = 1.f,
-	};
-
-	VkPipelineMultisampleStateCreateInfo mulitsampleInfo =
-	{
-		.sType = VK_STRUCTURE_TYPE_PIPELINE_MULTISAMPLE_STATE_CREATE_INFO,
-		.pNext = nullptr,
-		.flags = 0,
-		.rasterizationSamples = c_MSAACount,
-		.sampleShadingEnable = VK_FALSE,
-		.minSampleShading = 1.f,
-		.pSampleMask = nullptr,
-		.alphaToCoverageEnable = VK_FALSE,
-		.alphaToOneEnable = VK_FALSE
-	};
-
-	//per frame buffer attachment
-	VkPipelineColorBlendAttachmentState colorBlendAttachmentState =
-	{
-		.blendEnable = VK_TRUE,
-		.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA, //VK_BLEND_FACTOR_ONE,
-		.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA, //VK_BLEND_FACTOR_ZERO,
-		.colorBlendOp = VK_BLEND_OP_ADD,
-		.srcAlphaBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA,
-		.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA,
-		.alphaBlendOp = VK_BLEND_OP_ADD,
-		.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT
-	};
-
-	VkPipelineColorBlendStateCreateInfo colorBlendInfo =
-	{
-		.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO,
-		.pNext = nullptr,
-		.flags = 0,
-		.logicOpEnable = VK_FALSE,
-		.logicOp = VK_LOGIC_OP_COPY,
-		.attachmentCount = 1,
-		.pAttachments = &colorBlendAttachmentState,
-		.blendConstants = { 0.f, 0.f, 0.f, 0.f}
-	};
-
-	VkPipelineDepthStencilStateCreateInfo depthStencil =
-	{
-		.sType = VK_STRUCTURE_TYPE_PIPELINE_DEPTH_STENCIL_STATE_CREATE_INFO,
-		.pNext = nullptr,
-		.flags = 0,
-		.depthTestEnable = VK_TRUE,
-		.depthWriteEnable = VK_TRUE,
-		.depthCompareOp = VK_COMPARE_OP_LESS,//VK_COMPARE_OP_LESS_OR_EQUAL,
-		.depthBoundsTestEnable = VK_FALSE,
-		.stencilTestEnable = VK_FALSE,
-		.front = {},
-		.back = {},
-		.minDepthBounds = 0.f,
-		.maxDepthBounds = 1.f
-	};
-
-	//uniforms buffer?
-	VkDescriptorSetLayout graphicsSetLayout = m_GraphicsSetLayout.GetHandle();
-
-	VkPipelineLayoutCreateInfo pipelineLayoutInfo =
-	{
-		.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO,
-		.pNext = nullptr,
-		.flags = 0,
-		.setLayoutCount = 1, 
-		//.pSetLayouts = &m_DescriptorSetLayout,
-		.pSetLayouts = &graphicsSetLayout,
-		.pushConstantRangeCount = 0, //edit
-		.pPushConstantRanges = nullptr //edit
-	};
-
-	vkCreatePipelineLayout(m_Device, &pipelineLayoutInfo, nullptr, &m_PipelineLayout);
-
-	VkGraphicsPipelineCreateInfo graphicsPipelineInfo =
-	{
-		.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO,
-		.pNext = nullptr,
-		.flags = 0,
-		.stageCount = 2,
-		.pStages = shaderStages,
-		.pVertexInputState = &vertexInputInfo,
-		.pInputAssemblyState = &inputAssemblyInfo,
-		.pTessellationState = nullptr,
-		.pViewportState = &viewportStateInfo, //it is dynamic
-		.pRasterizationState = &rasterizationInfo,
-		.pMultisampleState = &mulitsampleInfo,
-		.pDepthStencilState = &depthStencil,
-		.pColorBlendState = &colorBlendInfo,
-		.pDynamicState = &dynamicStateInfo,
-		.layout = m_PipelineLayout,
-		.renderPass = m_RenderPass,
-		.subpass = 0,
-		.basePipelineHandle = VK_NULL_HANDLE,
-		.basePipelineIndex = -1
-	};
-
-	vkCreateGraphicsPipelines(m_Device, VK_NULL_HANDLE, 1, &graphicsPipelineInfo, nullptr, &m_GraphicsPipeline);
-
-	vkDestroyShaderModule(m_Device, vertShaderModule, nullptr);
-	vkDestroyShaderModule(m_Device, fragShaderModule, nullptr);
 }
 
 void Renderer::CreateComputePipeline()
@@ -958,30 +453,6 @@ void Renderer::CreateComputePipeline()
 	m_VolumeStep.Init(volumeSpec);
 }
 
-void Renderer::CreateFramebuffers()
-{
-	m_Framebuffers.resize(m_ImageViews.size());
-
-	for (size_t i = 0; i < m_ImageViews.size(); i++)
-	{
-		VkImageView attachments[3] = { m_MSAAImage.GetImageView(), m_DepthImage.GetImageView(), m_ImageViews[i]};
-		VkFramebufferCreateInfo framebufferInfo =
-		{
-			.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
-			.pNext = nullptr,
-			.flags = 0,
-			.renderPass = m_RenderPass,
-			.attachmentCount = 3,
-			.pAttachments = attachments,
-			.width = m_ImageExtend.width,
-			.height = m_ImageExtend.height,
-			.layers = 1
-		};
-
-		vkCreateFramebuffer(m_Device, &framebufferInfo, nullptr, &m_Framebuffers[i]);
-	}
-}
-
 void Renderer::CreateComandPool()
 {
 	VkCommandPoolCreateInfo commandPoolInfo =
@@ -989,66 +460,10 @@ void Renderer::CreateComandPool()
 		.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO,
 		.pNext = nullptr,
 		.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT,
-		.queueFamilyIndex = Device::GetFamilyQueue(m_Device.physicalDevice, VK_QUEUE_GRAPHICS_BIT)
+		.queueFamilyIndex = m_QueueFamily
 	};
 
 	vkCreateCommandPool(m_Device, &commandPoolInfo, nullptr, &m_CommandPool);
-}
-
-void Renderer::CreateVertexBuffer()
-{
-	VkDeviceSize bufferSize = sizeof(Vertex) * cubeVert.size();
-
-	BufferSpecification vertexSpec =
-	{
-		.device = m_Device,
-		.size = bufferSize,
-		.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT,
-		.properties = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT
-	};
-	m_VertexBuffer.Init(vertexSpec, nullptr);
-
-	BufferSpecification stagingSpec =
-	{
-		.device = m_Device,
-		.size = bufferSize,
-		.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-		.properties = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
-	};
-	Buffer stagingBuffer;
-	stagingBuffer.Init(stagingSpec, cubeVert.data());
-
-	CopyBuffer(stagingBuffer.GetHandle(), m_VertexBuffer.GetHandle(), bufferSize);
-
-	stagingBuffer.Free();
-}
-
-void Renderer::CreateIndexBuffer()
-{
-	VkDeviceSize bufferSize = sizeof(uint16_t) * cubveInd.size();
-
-	BufferSpecification indexSpec =
-	{
-		.device = m_Device,
-		.size = bufferSize,
-		.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_INDEX_BUFFER_BIT,
-		.properties = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT
-	};
-	m_IndexBuffer.Init(indexSpec, nullptr);
-
-	BufferSpecification stagingSpec =
-	{
-		.device = m_Device,
-		.size = bufferSize,
-		.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-		.properties = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
-	};
-	Buffer stagingBuffer;
-	stagingBuffer.Init(stagingSpec, cubveInd.data());
-
-	CopyBuffer(stagingBuffer.GetHandle(), m_IndexBuffer.GetHandle(), bufferSize);
-
-	stagingBuffer.Free();
 }
 
 void Renderer::CreateInstanceBuffer()
@@ -1146,7 +561,7 @@ void Renderer::CreateDescriptorPool()
 		},
 		{
 			.type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER,
-			.descriptorCount = 1
+			.descriptorCount = 8
 		}
 	};
 
@@ -1154,57 +569,91 @@ void Renderer::CreateDescriptorPool()
 	{
 		.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO,
 		.pNext = nullptr,
-		.flags = 0,
-		.maxSets = MAX_IN_FLIGHT_FRAMES * 4,
-		.poolSizeCount = 3,
+		.flags = VK_DESCRIPTOR_POOL_CREATE_FREE_DESCRIPTOR_SET_BIT,
+		.maxSets = MAX_IN_FLIGHT_FRAMES * 3 + 8,
+		.poolSizeCount = 4,
 		.pPoolSizes = poolSizes,
 	};
 
 	vkCreateDescriptorPool(m_Device, &poolInfo, nullptr, &m_DescriptorPool);
 }
 
-void Renderer::CreateDescriptorSets()
+void Renderer::CreateGUIPass()
 {
-	std::vector<VkDescriptorSetLayout> layouts(MAX_IN_FLIGHT_FRAMES, m_GraphicsSetLayout.GetHandle());
-
-	VkDescriptorSetAllocateInfo allocInfo =
+	VkAttachmentDescription colorAttachment =
 	{
-		.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO,
-		.pNext = nullptr,
-		.descriptorPool = m_DescriptorPool,
-		.descriptorSetCount = MAX_IN_FLIGHT_FRAMES,
-		.pSetLayouts = layouts.data()
+		.flags = 0,
+		.format = c_SwapChainFormat.format,
+		.samples = VK_SAMPLE_COUNT_1_BIT,
+		.loadOp = VK_ATTACHMENT_LOAD_OP_LOAD,// VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+		.storeOp = VK_ATTACHMENT_STORE_OP_STORE,
+		.stencilLoadOp = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
+		.stencilStoreOp = VK_ATTACHMENT_STORE_OP_DONT_CARE,
+		.initialLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+		.finalLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR
 	};
 
-	m_DescriptorSets.resize(MAX_IN_FLIGHT_FRAMES);
-	vkAllocateDescriptorSets(m_Device, &allocInfo, m_DescriptorSets.data());
-
-	for (size_t i = 0; i < MAX_IN_FLIGHT_FRAMES; i++)
+	VkAttachmentReference colorAttachmentRef =
 	{
-		VkDescriptorBufferInfo bufferInfo =
-		{
-			.buffer = m_UniformBuffers[i].GetHandle(),
-			.offset = 0,
-			.range = m_UniformBuffers[i].GetSize()
-		};
+		.attachment = 0,
+		.layout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL
+	};
 
-		VkWriteDescriptorSet descriptorWrite =
+	VkSubpassDescription subpass =
+	{
+		.flags = 0,
+		.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS,
+		.colorAttachmentCount = 1,
+		.pColorAttachments = &colorAttachmentRef,
+		.pResolveAttachments = nullptr,
+		.pDepthStencilAttachment = nullptr
+	};
+
+	VkSubpassDependency dependency =
+	{
+		.srcSubpass = VK_SUBPASS_EXTERNAL,
+		.dstSubpass = 0,
+		.srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT,
+		.dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT | VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT,
+		.srcAccessMask = 0,
+		.dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT
+	};
+
+	VkRenderPassCreateInfo renderPassInfo =
+	{
+		.sType = VK_STRUCTURE_TYPE_RENDER_PASS_CREATE_INFO,
+		.pNext = nullptr,
+		.flags = 0,
+		.attachmentCount = 1,
+		.pAttachments = &colorAttachment,
+		.subpassCount = 1,
+		.pSubpasses = &subpass,
+		.dependencyCount = 1,
+		.pDependencies = &dependency
+	};
+
+	vkCreateRenderPass(m_Device, &renderPassInfo, nullptr, &m_GUIPass);
+
+	m_Framebuffers.resize(m_SwapChain.GetImageCount());
+
+	for (size_t i = 0; i < m_SwapChain.GetImageCount(); i++)
+	{
+		VkImageView attachments[1] = { m_SwapChain.GetImageView(i) };
+		VkFramebufferCreateInfo framebufferInfo =
 		{
-			.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET,
+			.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
 			.pNext = nullptr,
-			.dstSet = m_DescriptorSets[i],
-			.dstBinding = 0,
-			.dstArrayElement = 0,
-			.descriptorCount = 1,
-			.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER,
-			.pImageInfo = nullptr,
-			.pBufferInfo = &bufferInfo,
-			.pTexelBufferView = nullptr
+			.flags = 0,
+			.renderPass = m_GUIPass,
+			.attachmentCount = 1,
+			.pAttachments = attachments,
+			.width = m_ImageExtend.width,
+			.height = m_ImageExtend.height,
+			.layers = 1
 		};
 
-		vkUpdateDescriptorSets(m_Device, 1, &descriptorWrite, 0, nullptr);
+		vkCreateFramebuffer(m_Device, &framebufferInfo, nullptr, &m_Framebuffers[i]);
 	}
-
 }
 
 void Renderer::CreateComputeDescriptorSets()
@@ -1356,87 +805,7 @@ void Renderer::CopyBuffer(VkBuffer srcBuffer, VkBuffer dstBuffer, VkDeviceSize s
 	vkFreeCommandBuffers(m_Device, m_CommandPool, 1, &commandBuffer);
 }
 
-void Renderer::ClearSwapChain()
-{
-	for (auto& framebuffer : m_Framebuffers)
-	{
-		vkDestroyFramebuffer(m_Device, framebuffer, nullptr);
-	}
-
-	for (auto& imageView : m_ImageViews)
-	{
-		vkDestroyImageView(m_Device, imageView, nullptr);
-	}
-
-	vkDestroySwapchainKHR(m_Device, m_Swapchain, nullptr);
-}
-
 static uint32_t curentFrame = 0;
-void Renderer::recordCommandBuffer(VkCommandBuffer commandBuffer, uint32_t imageIndex)
-{
-	VkCommandBufferBeginInfo beginBufferInfo =
-	{
-		.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
-		.pNext = nullptr,
-		.flags = 0,
-		.pInheritanceInfo = nullptr
-	};
-
-	vkBeginCommandBuffer(commandBuffer, &beginBufferInfo);
-
-	VkRect2D renderArea = { {0,0}, m_ImageExtend };
-	VkClearValue clearValues[2] = { {0.f, 0.f, 0.005f, 0.f}, {1.f, 0.f}};
-
-	VkRenderPassBeginInfo beginRenderPassInfo =
-	{
-		.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO,
-		.pNext = nullptr,
-		.renderPass = m_RenderPass,
-		.framebuffer = m_Framebuffers[imageIndex],
-		.renderArea = renderArea,
-		.clearValueCount = 2,
-		.pClearValues = clearValues
-	};
-
-	vkCmdBeginRenderPass(commandBuffer, &beginRenderPassInfo, VK_SUBPASS_CONTENTS_INLINE);
-
-	vkCmdBindPipeline(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, m_GraphicsPipeline);
-
-	VkDeviceSize offset[2] = { 0,0 };
-	VkBuffer vertexBuffers[2] = {m_VertexBuffer.GetHandle(), m_InstanceBuffer.GetHandle()};
-	vkCmdBindVertexBuffers(commandBuffer, 0, 2, vertexBuffers, offset);
-
-	vkCmdBindIndexBuffer(commandBuffer, m_IndexBuffer.GetHandle(), 0, VK_INDEX_TYPE_UINT16);
-
-	//set up in pipeline as dynamic
-	VkViewport viewport = 
-	{
-		.x = 0.0f,
-		.y = 0.0f,
-		.width = (float)m_ImageExtend.width,
-		.height = (float)m_ImageExtend.height,
-		.minDepth = 0.0f,
-		.maxDepth = 1.0f
-	};
-	vkCmdSetViewport(commandBuffer, 0, 1, &viewport);
-
-	//set up in pipeline as dynamic
-	VkRect2D scissor = 
-	{
-		.offset = { 0, 0 },
-		.extent = m_ImageExtend
-	};
-	vkCmdSetScissor(commandBuffer, 0, 1, &scissor);
-
-	vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_GRAPHICS, m_PipelineLayout, 0, 1, &m_DescriptorSets[curentFrame], 0, nullptr);
-
-	//Draw
-	//vkCmdDraw(commandBuffer, cubeVert.size(), 1, 0, 0);
-	vkCmdDrawIndexed(commandBuffer, cubveInd.size(), s_SimUBO.particlesCount, 0, 0, 0);//s_SimUBO.particlesCount
-
-	vkCmdEndRenderPass(commandBuffer);
-	vkEndCommandBuffer(commandBuffer);
-}
 
 void Renderer::Begin(VkCommandBuffer commandBuffer)
 {
@@ -1592,17 +961,45 @@ void Renderer::RenderFrame(float deltaTime)
 	//drawing
 	vkWaitForFences(m_Device, 1, &m_InFlightFences[curentFrame], VK_TRUE, UINT64_MAX);
 	
-	uint32_t imageIndex;
-	VkResult result = vkAcquireNextImageKHR(m_Device, m_Swapchain, UINT64_MAX, m_ImageAvailableSemaphores[curentFrame], VK_NULL_HANDLE, &imageIndex);
-	if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR)
+	
+	VkImage SwapChainImage = m_SwapChain.AcquireImage(m_ImageAvailableSemaphores[curentFrame]);
+	vkResetFences(m_Device, 1, &m_InFlightFences[curentFrame]);
+
+	if (SwapChainImage == VK_NULL_HANDLE)
 	{
-		RecreateSwapChain();
+		m_SwapChain.Resize();
+
+		for (auto& framebuffer : m_Framebuffers)
+		{
+			vkDestroyFramebuffer(m_Device, framebuffer, nullptr);
+		}
+
+		m_ImageExtend = m_SwapChain.GetExtend();
+		m_Framebuffers.resize(m_SwapChain.GetImageCount());
+
+		for (size_t i = 0; i < m_SwapChain.GetImageCount(); i++)
+		{
+			VkImageView attachments[1] = { m_SwapChain.GetImageView(i) };
+			VkFramebufferCreateInfo framebufferInfo =
+			{
+				.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
+				.pNext = nullptr,
+				.flags = 0,
+				.renderPass = m_GUIPass,
+				.attachmentCount = 1,
+				.pAttachments = attachments,
+				.width = m_ImageExtend.width,
+				.height = m_ImageExtend.height,
+				.layers = 1
+			};
+
+			vkCreateFramebuffer(m_Device, &framebufferInfo, nullptr, &m_Framebuffers[i]);
+		}
+
 		return;
 	}
 
-	vkResetFences(m_Device, 1, &m_InFlightFences[curentFrame]);
 	vkResetCommandBuffer(m_CommandBuffers[curentFrame], 0);
-	//recordCommandBuffer(m_CommandBuffers[curentFrame], imageIndex);
 	
 	//copy pass
 	VkCommandBufferBeginInfo beginBufferInfo =
@@ -1641,7 +1038,7 @@ void Renderer::RenderFrame(float deltaTime)
 		.newLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
 		.srcQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
 		.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
-		.image = m_Images[imageIndex],
+		.image = SwapChainImage,
 		.subresourceRange = { VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1 },
 	};
 
@@ -1652,22 +1049,29 @@ void Renderer::RenderFrame(float deltaTime)
 
 	// 6. Execute the image copy operation
 	VkExtent3D dstExtend = { m_ImageExtend.width, m_ImageExtend.height, 1 };
-	Utilites::CmdBlitImage(m_CommandBuffers[curentFrame], m_ScreenImage.GetImageHandle(), m_ScreenImage.GetExtent(), m_Images[imageIndex], dstExtend);
+	Utilites::CmdBlitImage(m_CommandBuffers[curentFrame], m_ScreenImage.GetImageHandle(), m_ScreenImage.GetExtent(), SwapChainImage, dstExtend);
 
 	// 7. Transition swapchain image to present layout
 	Utilites::TransferImageDetails presentBarrier =
 	{
 		.oldLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-		.newLayout = VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
+		.newLayout = VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,//VK_IMAGE_LAYOUT_PRESENT_SRC_KHR,
 		.srcAccess = VK_ACCESS_TRANSFER_WRITE_BIT,
 		.dstAccess = VK_ACCESS_MEMORY_READ_BIT,
 		.srcMask = VK_PIPELINE_STAGE_TRANSFER_BIT,
 		.dstMask = VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT
 	};
-	Utilites::CmdTransferImage(m_CommandBuffers[curentFrame], m_Images[imageIndex], presentBarrier);
+	Utilites::CmdTransferImage(m_CommandBuffers[curentFrame], SwapChainImage, presentBarrier);
 
 	VkPipelineStageFlags waitStages[] = { VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT };
 	End(m_CommandBuffers[curentFrame], waitStages, {m_ImageAvailableSemaphores[curentFrame]}, {m_RenderFinishedSemaphores[curentFrame]});
+
+}
+
+void Renderer::Present()
+{
+	VkSwapchainKHR swapchain = m_SwapChain.GetSwapChain();
+	uint32_t index = m_SwapChain.GetActiveImageIndex();
 
 	VkPresentInfoKHR presentInfo =
 	{
@@ -1676,15 +1080,42 @@ void Renderer::RenderFrame(float deltaTime)
 		.waitSemaphoreCount = 1,
 		.pWaitSemaphores = &m_RenderFinishedSemaphores[curentFrame],
 		.swapchainCount = 1,
-		.pSwapchains = &m_Swapchain,
-		.pImageIndices = &imageIndex,
+		.pSwapchains = &swapchain,
+		.pImageIndices = &index,
 		.pResults = nullptr
 	};
 
-	result = vkQueuePresentKHR(m_PresentQueue, &presentInfo);
+	VkResult result = vkQueuePresentKHR(m_PresentQueue, &presentInfo);
 	if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR)
 	{
-		RecreateSwapChain();
+		m_SwapChain.Resize();
+
+		for (auto& framebuffer : m_Framebuffers)
+		{
+			vkDestroyFramebuffer(m_Device, framebuffer, nullptr);
+		}
+
+		m_ImageExtend = m_SwapChain.GetExtend();
+		m_Framebuffers.resize(m_SwapChain.GetImageCount());
+
+		for (size_t i = 0; i < m_SwapChain.GetImageCount(); i++)
+		{
+			VkImageView attachments[1] = { m_SwapChain.GetImageView(i) };
+			VkFramebufferCreateInfo framebufferInfo =
+			{
+				.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO,
+				.pNext = nullptr,
+				.flags = 0,
+				.renderPass = m_GUIPass,
+				.attachmentCount = 1,
+				.pAttachments = attachments,
+				.width = m_ImageExtend.width,
+				.height = m_ImageExtend.height,
+				.layers = 1
+			};
+
+			vkCreateFramebuffer(m_Device, &framebufferInfo, nullptr, &m_Framebuffers[i]);
+		}
 	}
 
 	curentFrame = (curentFrame + 1) % MAX_IN_FLIGHT_FRAMES;
@@ -1700,9 +1131,13 @@ void Renderer::UpdateCamera(const Camera& camera)
 	m_UniformBuffers[curentFrame].Write(&s_RenderingUBO, sizeof(s_RenderingUBO));
 }
 
+void Renderer::UpdateRenderSetings(float stepSize)
+{
+	s_RenderingUBO.StepSize = stepSize;
+}
+
 void Renderer::RunSortStep(ComputePipeline& sortStep, uint32_t size, uint32_t algorithm)
 {
-
 	uint32_t data[] = { algorithm, size , s_SimUBO.particlesCount };
 
 	uint32_t invocations = (s_SimUBO.particlesCount / size) * (size / 256);
@@ -1718,18 +1153,4 @@ void Renderer::RunSortStep(ComputePipeline& sortStep, uint32_t size, uint32_t al
 
 	//LOG(DEBUG, "Algorithm: %d, h:%d, inv:%d", algorithm, size, invocations);
 	sortStep.Dispatch(m_CommandBuffers[curentFrame], invocations, 1, 1, &m_SortDescriptorSets[0], data);
-}
-
-void Renderer::RecreateSwapChain()
-{
-	vkDeviceWaitIdle(m_Device);
-
-	ClearSwapChain();
-
-	CreateSwapChain();
-
-	m_MSAAImage.Resize(m_ImageExtend);
-	m_DepthImage.Resize(m_ImageExtend);
-
-	CreateFramebuffers();
 }
