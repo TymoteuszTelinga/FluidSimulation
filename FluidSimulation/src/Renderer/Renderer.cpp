@@ -73,6 +73,9 @@ static struct UniformBufferObject
 	alignas(16) glm::mat4 proj  = glm::mat4(1.f);
 	alignas(16) glm::vec3 cameraPos = glm::vec3(0.f);
 	float StepSize = 0.02f;
+	bool bDynamicCalculations = false;
+	float SamplingStep = 0.1f;
+	int32_t Bounces = 2;
 } s_RenderingUBO;
 
 static struct SimulationUBO
@@ -1131,9 +1134,11 @@ void Renderer::UpdateCamera(const Camera& camera)
 	m_UniformBuffers[curentFrame].Write(&s_RenderingUBO, sizeof(s_RenderingUBO));
 }
 
-void Renderer::UpdateRenderSetings(float stepSize)
+void Renderer::UpdateRenderSetings(float stepSize, bool bDynamic, float sampling)
 {
 	s_RenderingUBO.StepSize = stepSize;
+	s_RenderingUBO.bDynamicCalculations = bDynamic;
+	s_RenderingUBO.SamplingStep = sampling;
 }
 
 void Renderer::RunSortStep(ComputePipeline& sortStep, uint32_t size, uint32_t algorithm)

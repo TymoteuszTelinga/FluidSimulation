@@ -35,7 +35,7 @@ public:
 	void Present();
 
 	void UpdateCamera(const Camera& camera);
-	void UpdateRenderSetings(float stepSize);
+	void UpdateRenderSetings(float stepSize, bool bDynamic, float sampling);
 	//void updateUniformBuffer(float deltaTime, uint32_t currentImage);
 
 	//Fluid simlualtion steps

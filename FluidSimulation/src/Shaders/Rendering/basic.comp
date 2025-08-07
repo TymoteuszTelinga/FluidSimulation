@@ -12,6 +12,10 @@ layout(binding = 2) uniform UniformBufferObject
 	mat4 view;
 	mat4 proj;
     vec3 cameraPos;
+    float stepSize;
+    bool DynamicCalculations;
+    float samplingStep;
+    int bounces;
 } ubo;
 
 //--------------Defines--------------
@@ -27,6 +31,7 @@ struct HitInfo
 {
     bool didHit;
     float densityAlongRay;
+    float distance; //debug informations
     vec3 hitPoint;
     vec3 normal;
 };
@@ -106,9 +111,9 @@ vec3 CalculateClosestFaceNormal(vec3 pos)
 vec3 CalculateNormal(vec3 pos)
 {
     const float s = 0.1f;
-    vec3 offsetX = vec3(1.f, 0.f, 0.f) * s;
-    vec3 offsetY = vec3(0.f, 1.f, 0.f) * s;
-    vec3 offsetZ = vec3(0.f, 0.f, 1.f) * s;
+    vec3 offsetX = vec3(1.f, 0.f, 0.f) * ubo.samplingStep;
+    vec3 offsetY = vec3(0.f, 1.f, 0.f) * ubo.samplingStep;
+    vec3 offsetZ = vec3(0.f, 0.f, 1.f) * ubo.samplingStep;
 
     float dx = SampleDensity(pos - offsetX) - SampleDensity(pos + offsetX);
     float dy = SampleDensity(pos - offsetY) - SampleDensity(pos + offsetY);
@@ -191,12 +196,33 @@ vec3 Enviroment(vec3 position, vec3 direction)
     return mix(colGround, skyGradient, groundToSkyT) + vec3(sun * a);
 }
 
+float CalculateSurface(vec3 origin, vec3 direction, float maxStep, bool bFindFluid)
+{
+    if (!ubo.DynamicCalculations)
+    {
+       return 0.f;
+    }
+
+    float d;
+    for(d = 0.001f; d <= maxStep; d+= 0.001f)
+    {
+        vec3 position = origin + direction * d;
+        float density = SampleDensity(position);
+        bool insideFluid = density > 0.f;
+        if (insideFluid == bFindFluid)
+        {
+            break;
+        }
+    }
+    return d;
+}
 
 HitInfo FindNextSurface(Ray ray, bool bFindNextEntry, float stepSize)
 {
     HitInfo closestHit;
     closestHit.didHit = false;
     closestHit.densityAlongRay = 0.f;
+    closestHit.distance = 0.f;
     closestHit.hitPoint = vec3(0.f);
     closestHit.normal = vec3(0.f);
 
@@ -206,45 +232,76 @@ HitInfo FindNextSurface(Ray ray, bool bFindNextEntry, float stepSize)
         return closestHit;
     }
 
-    bool hasExittedFluid = !IsInsideFluid(ray.origin);
-    bool hasEnteredFluid = false;
+    bool startInFluid = IsInsideFluid(ray.origin);
     vec3 lastPositionInFluid = ray.origin;
+    // bool hasEnteredFluid = false;
 
     dMin = max(0.f, dMin);
-    for (float d = dMin + 0.01f; d <= dMax; d += stepSize)
+    for (float d = dMin; d <= dMax; d += stepSize)
     {
-        bool isLastStep = d + stepSize >= dMax;
-        vec3 position = ray.origin + ray.direction * d;
+        vec3 position = ray.origin + ray.direction * (d+stepSize);
         float density = SampleDensity(position) * stepSize * 0.003f;
         bool insideFluid = density > 0.f;
-        if (insideFluid)
+        //found Boundry
+        if (insideFluid != startInFluid)
         {
-            closestHit.densityAlongRay += density;
-            lastPositionInFluid = position;
-            hasEnteredFluid = true;
-        }
-        else
-        {
-            hasExittedFluid = true;
-        }
+            vec3 position = ray.origin + ray.direction * d;
+            float surfaceSDF = CalculateSurface(position, ray.direction, stepSize, !startInFluid);
 
-        bool found;
-        if (bFindNextEntry)
-        {
-            found = insideFluid && hasExittedFluid;
-        }
-        else
-        {
-            found = hasEnteredFluid && (!insideFluid || isLastStep);
-        }
-
-        if ( found )
-        {
             closestHit.didHit = true;
-            closestHit.hitPoint = lastPositionInFluid;
+            closestHit.distance = (d + surfaceSDF);
+            closestHit.hitPoint = ray.origin + ray.direction * (d + surfaceSDF);
+            closestHit.densityAlongRay = SampleDensity(closestHit.hitPoint) * surfaceSDF * 0.003f;
             break;
         }
+        else
+        {
+            closestHit.densityAlongRay += max(0.f, density);
+        }
     }
+
+    if(!closestHit.didHit && startInFluid)
+    {
+        closestHit.didHit = true;
+        closestHit.distance = dMax;
+        closestHit.hitPoint = ray.origin + ray.direction * dMax;
+    }
+
+    // for (float d = dMin + 0.001f; d <= dMax; d += stepSize)
+    // {
+    //     bool isLastStep = d + stepSize >= dMax;
+    //     vec3 position = ray.origin + ray.direction * d;
+    //     float density = SampleDensity(position) * stepSize * 0.003f;
+    //     bool insideFluid = density > 0.f;
+    //     if (insideFluid)
+    //     {
+    //         closestHit.densityAlongRay += density;
+    //         lastPositionInFluid = position;
+    //         hasEnteredFluid = true;
+    //     }
+    //     else
+    //     {
+    //         hasExittedFluid = true;
+    //     }
+
+    //     bool found;
+    //     if (bFindNextEntry)
+    //     {
+    //         found = insideFluid && hasExittedFluid;
+    //     }
+    //     else
+    //     {
+    //         found = hasEnteredFluid && (!insideFluid || isLastStep);
+    //     }
+
+    //     if ( found )
+    //     {
+    //         closestHit.distance = d - dMin;
+    //         closestHit.didHit = true;
+    //         closestHit.hitPoint = lastPositionInFluid;
+    //         break;
+    //     }
+    // }
 
     return closestHit;
 }
@@ -277,6 +334,7 @@ vec3 TraceSPH(Ray ray)
 {
     HitInfo hit;
     hit.didHit = false;
+    hit.distance = 0.f;
     hit.densityAlongRay = 0.f;
     hit.normal = vec3(0.f);
 
@@ -286,12 +344,12 @@ vec3 TraceSPH(Ray ray)
     vec3 Contribution = vec3(1.f);
     vec3 Light = vec3(0.f);
 
-    float stepSize = 0.02f;
+    //float stepSize = 0.02f;
     bool bRayFromInsideFluid = IsInsideFluid(ray.origin);
 
-    for (int i = 0; i < 1; i++)
+    for (int i = 0; i < ubo.bounces; i++)
     {
-        hit = FindNextSurface(ray, !bRayFromInsideFluid, stepSize);
+        hit = FindNextSurface(ray, !bRayFromInsideFluid, ubo.stepSize);
 
         Contribution *= exp(-hit.densityAlongRay * vec3(7.23f, 2.71f, 1.41f));
         if (!hit.didHit)
@@ -349,6 +407,8 @@ vec3 TraceSPH(Ray ray)
         Light += Enviroment(ray.origin, ray.direction) * Contribution * exp(-CalculateDensityAlongRay(ray.origin, ray.direction, 0.1)*vec3(7.23f, 2.71f, 1.41f)) * remidingWeight;
     }
 
+    // return vec3((hit.normal + 1.f) / 2.f);
+    // return vec3(hit.densityAlongRay * 1000.f, hit.distance, 0.f);
     return Light;
 
     if(!hit.didHit)

@@ -81,11 +81,16 @@ void Simulation::OnGUIRender()
 	}
 
 	ImGui::SeparatorText("Rendering");
+
 	static float stepSize = 0.02f;
-	if (ImGui::DragFloat("StepSize", &stepSize, 0.001f, 0.001f, 0.1f))
-	{
-		m_Renderer->UpdateRenderSetings(stepSize);
-	}
+	static bool bDynamicCalculations = false;
+	static float sampling = 0.1f;
+
+	ImGui::DragFloat("StepSize", &stepSize, 0.001f, 0.001f, 0.1f);
+	ImGui::Checkbox("Dynamic Calculations", &bDynamicCalculations);
+	ImGui::DragFloat("Sampling", &sampling, 0.001f, 0.001f, 1.0f);
+
+	m_Renderer->UpdateRenderSetings(stepSize, bDynamicCalculations, sampling);
 
 	ImGui::End();
 }
