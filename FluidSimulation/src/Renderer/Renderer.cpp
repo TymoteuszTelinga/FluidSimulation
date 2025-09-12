@@ -72,10 +72,13 @@ static struct UniformBufferObject
 	alignas(16) glm::mat4 view  = glm::mat4(1.f);
 	alignas(16) glm::mat4 proj  = glm::mat4(1.f);
 	alignas(16) glm::vec3 cameraPos = glm::vec3(0.f);
+	//grafics setings
 	float StepSize = 0.02f;
-	bool bDynamicCalculations = false;
+	bool bDynamicCalculations = true;
 	float SamplingStep = 0.1f;
-	int32_t Bounces = 2;
+	int32_t Bounces = 1;
+	alignas(16) glm::vec3 ExtinctionCoeff = glm::vec3(7.23f, 2.71f, 1.41f);
+	int32_t ObjectsInScene = 0;
 } s_RenderingUBO;
 
 static struct SimulationUBO
@@ -116,6 +119,7 @@ Renderer::~Renderer()
 	m_InstanceBuffer.Free();
 	m_SpatialBuffer.Free();
 	m_LookUpBuffer.Free();
+	m_ObjectTracing.Free();
 
 	for (auto& buffer : m_UniformBuffers)
 	{
@@ -688,10 +692,25 @@ void Renderer::InitRayTracing()
 	{
 		.device = m_Device,
 		.stage = VK_SHADER_STAGE_COMPUTE_BIT,
-		.types = {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER}
-		//image, Density, cameraUBO
+		.types = {VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER}
+		//image, Density, cameraUBO, objectBuffer
 	};
 	m_RayTracingLayout.Init(RayTracingLayoutSpec);
+
+	BufferSpecification ObjectSpec =
+	{
+		.device = m_Device,
+		.size = sizeof(Object) * 10,
+		.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+		.properties = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+		.AllowWrite = true
+	};
+	m_ObjectTracing.Init(ObjectSpec, nullptr);
+
+	Object test;
+	test.transform = glm::scale(glm::mat4(1.f), glm::vec3(1.f, 0.1f, 6.f));
+	test.Color = glm::vec3(1.f, 0.5f, 0.3f);
+	m_ObjectTracing.Write(&test, sizeof(Object));
 
 	ComputePipelineSpecification RayTracingSpec =
 	{
@@ -704,7 +723,7 @@ void Renderer::InitRayTracing()
 	m_RayTracing.Init(RayTracingSpec);
 
 
-	m_RayTracingSet = m_RayTracingLayout.CreateSets(m_DescriptorPool, 1, {m_UniformBuffers[0]}, {m_ScreenImage, m_DensityVolume})[0];
+	m_RayTracingSet = m_RayTracingLayout.CreateSets(m_DescriptorPool, 1, {m_UniformBuffers[0], m_ObjectTracing}, {m_ScreenImage, m_DensityVolume})[0];
 }
 
 void Renderer::CreateCommandBuffer()
@@ -1139,6 +1158,13 @@ void Renderer::UpdateRenderSetings(float stepSize, bool bDynamic, float sampling
 	s_RenderingUBO.StepSize = stepSize;
 	s_RenderingUBO.bDynamicCalculations = bDynamic;
 	s_RenderingUBO.SamplingStep = sampling;
+	//s_RenderingUBO.ExtinctionCoeff = glm::vec3(1.23f, 2.71f, 1.41f);
+}
+
+void Renderer::UpdateSceneObjects(const std::vector<Object>& objects)
+{
+	m_ObjectTracing.Write(objects.data(), sizeof(Object) * objects.size());
+	s_RenderingUBO.ObjectsInScene = objects.size();
 }
 
 void Renderer::RunSortStep(ComputePipeline& sortStep, uint32_t size, uint32_t algorithm)

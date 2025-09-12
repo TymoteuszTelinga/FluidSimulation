@@ -1,0 +1,10 @@
+PRACA
+opisac jak przestzren jest podzielona na komurki
+opisać renderowanie
+- tworzenie 3d density texture
+- ray marching throu density field
+
+SYMULACJA
+- box colision
+- box ray tracing
+- rau bounces increses

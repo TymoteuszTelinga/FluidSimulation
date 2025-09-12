@@ -22,6 +22,7 @@ private:
 	bool OnKeyPressed(KeyPressedEvent& e);
 	void UpdateCamera(float deltaTime);
 	void ToggleSlowmo();
+	void AddObject(glm::vec3 position, glm::vec3 rotation, glm::vec3 scale, glm::vec3 color);
 
 private:
 	bool bPoused = false;
@@ -30,5 +31,5 @@ private:
 
 	Scope<Camera> m_Camera;
 	glm::vec2 m_LastMousePosition;
-
+	std::vector<Object> m_Objects;
 };

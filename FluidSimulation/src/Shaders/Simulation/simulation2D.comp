@@ -69,6 +69,9 @@ float CalculateDensity(vec3 samplePoint)
             uint particleID = indexData.g;
 
             float dst = length(particles[particleID].predictedPosition - samplePoint);
+
+            if (dst >= u_Spec.Radius) continue;
+
             float influance = SmoothingKernel(u_Spec.Radius, dst);
             density += mass * influance;
         }
@@ -176,6 +179,9 @@ void PressureStep()
             //calculate custom property
             vec3 offset = particles[particleID].predictedPosition - samplePoint;
             float dst = length(offset);
+
+            if (dst >= u_Spec.Radius) continue;
+
             vec3 dir = dst == 0.f ? vec3(0.f, 1.f, 0.f) : offset / dst;
 
             float slope = SmoothingKernelDerivative(u_Spec.Radius, dst);
@@ -226,6 +232,8 @@ void ViscosityStep()
             //calculate custom property
             vec3 offset = particles[particleID].predictedPosition - samplePoint;
             float dst = length(offset);
+
+            if (dst >= u_Spec.Radius) continue;
 
             float slope = SmoothingKernel6(u_Spec.Radius, dst);
 

@@ -4,6 +4,7 @@
 #include <string>
 #include "Core/Base.h"
 #include "Core/Window.h"
+#include <glm/glm.hpp>
 
 #include "Image.h"
 #include "Buffer.h"
@@ -13,6 +14,12 @@
 #include "Device.h"
 
 class Camera;
+
+struct Object
+{
+	alignas(16) glm::mat4 transform;
+	alignas(16) glm::vec3 Color;
+};
 
 class Renderer
 {
@@ -36,6 +43,7 @@ public:
 
 	void UpdateCamera(const Camera& camera);
 	void UpdateRenderSetings(float stepSize, bool bDynamic, float sampling);
+	void UpdateSceneObjects(const std::vector<Object>& objects);
 	//void updateUniformBuffer(float deltaTime, uint32_t currentImage);
 
 	//Fluid simlualtion steps
@@ -142,6 +150,8 @@ private:
 
 	DescriptorLayout m_RayTracingLayout;
 	VkDescriptorSet m_RayTracingSet;
+
+	Buffer m_ObjectTracing;
 
 	ComputePipeline m_RayTracing;
 

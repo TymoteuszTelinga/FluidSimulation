@@ -1,5 +1,6 @@
 #include "Simulation.h"
 #include "Core/Input.h"
+//#include <glm/glm.hpp>
 #include <glm/gtx/quaternion.hpp>
 #include <imgui/imgui.h>
 
@@ -9,6 +10,14 @@ Simulation::Simulation(const ApplicationSpecification& spec)
 	m_Camera = CreateScope<Camera>(Camera::ProjectionType::Perspective);
 	//m_Camera->SetViewportSize(32 + 2, (4.5f * 6.f) + 2);
 	m_Camera->SetPosition(glm::vec3(0.f, 0.f, -40.f));
+
+	//white Cube
+	AddObject(glm::vec3(0.f), glm::vec3(0.f), glm::vec3(1.f), glm::vec3(1.f));
+	//floor
+	AddObject(glm::vec3(0.f, -13.f, 0.f), glm::vec3(0.f), glm::vec3(1.f), glm::vec3(1.f, 0.5f, 0.3f));
+
+	m_Renderer->UpdateSceneObjects(m_Objects);
+
 }
 
 Simulation::~Simulation()
@@ -83,7 +92,7 @@ void Simulation::OnGUIRender()
 	ImGui::SeparatorText("Rendering");
 
 	static float stepSize = 0.02f;
-	static bool bDynamicCalculations = false;
+	static bool bDynamicCalculations = true;
 	static float sampling = 0.1f;
 
 	ImGui::DragFloat("StepSize", &stepSize, 0.001f, 0.001f, 0.1f);
@@ -206,4 +215,18 @@ void Simulation::UpdateCamera(float deltaTime)
 void Simulation::ToggleSlowmo()
 {
 	bSlowmo = !bSlowmo;
+}
+
+void Simulation::AddObject(glm::vec3 position, glm::vec3 rotation, glm::vec3 scale, glm::vec3 color)
+{
+	glm::mat4 Translate = glm::translate(glm::mat4(1.0f), position);
+	glm::mat4 Scale = glm::scale(glm::mat4(1.0f), scale);
+
+	glm::quat quatRotation = glm::quat(rotation);
+	glm::mat4 Rotation = glm::toMat4(quatRotation);
+
+	Object object;
+	object.transform = Translate * Rotation * Scale;
+	object.Color = color;
+	m_Objects.push_back(object);
 }
