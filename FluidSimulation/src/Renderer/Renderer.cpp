@@ -187,7 +187,7 @@ void Renderer::Init(const std::string& applicationName, const Scope<Window>& win
 		maxZ = std::max(z, maxZ);
 
 		x += 0.f;
-		y += s_SimUBO.simulationHeight - s_SimUBO.simulationDepth;
+		y -= s_SimUBO.simulationHeight - s_SimUBO.simulationDepth;
 		z += 0.f;
 
 		Instance particle;

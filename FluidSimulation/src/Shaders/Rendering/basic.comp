@@ -32,13 +32,15 @@ layout(std140, binding = 3) buffer ObjectsBuffer
 };
 
 const vec3 SunDirection = normalize(vec3(-1.f, -1.f, -1.f));
-const float densityMultiplayer = 0.001f;
+const float densityMultiplayer = 0.003f;
 
 const vec3 BoxCenter = vec3(0.f, 0.f, 0.f);
 const vec3 BoxSize = vec3(1.f, 16.f, 1.f);
 
 const vec3 FloorCenter = vec3(0.f, 16.f, 0.f);
 const vec3 FloorSize = vec3(20.f, 0.1f, 20.f);
+
+const float WaterIOR = 1.333f;
 
 //--------------Defines--------------
 const float FLT_MAX = 3.402823466e+38;
@@ -52,6 +54,7 @@ struct Ray
 struct HitInfo 
 {
     bool didHit;
+    int hitObject;
     float densityAlongRay;
     float distance; //debug informations
     vec3 hitPoint;
@@ -71,8 +74,8 @@ bool intersectBox(Ray ray, out float d_min, out float d_max)
 {
     // Calculate intersection with each pair of planes along each axis
     vec3 invDir = 1.0 / ray.direction;
-    vec3 d1 = (-vec3(13.f, 16.f, 5.f) - ray.origin) * invDir;
-    vec3 d2 = ( vec3(13.f, 16.f, 5.f) - ray.origin) * invDir;
+    vec3 d1 = (-vec3(13.f, 13.f, 5.f) - ray.origin) * invDir;
+    vec3 d2 = ( vec3(13.f, 13.f, 5.f) - ray.origin) * invDir;
     
     // Find closest and furthest intersection for each axis
     vec3 tmin = min(d1, d2);
@@ -146,11 +149,11 @@ vec3 LocalToWorld(vec4 vec, mat4 Transform)
 
 HitInfo RayBox(Ray ray, mat4 box)
 {
-    Ray localRay = WorldRayToLocal(ray, box);
+    Ray localRay = WorldRayToLocal(ray, inverse(box));
     HitInfo hitResoult = UnitBox(localRay);
     
-    hitResoult.normal = normalize(LocalToWorld(vec4(hitResoult.normal, 0), inverse(box)));
-    hitResoult.hitPoint = LocalToWorld(vec4(hitResoult.hitPoint, 1), inverse(box));
+    hitResoult.normal = normalize(LocalToWorld(vec4(hitResoult.normal, 0), box));
+    hitResoult.hitPoint = LocalToWorld(vec4(hitResoult.hitPoint, 1), box);
     if(hitResoult.didHit)
     {
         hitResoult.distance = length(ray.origin - hitResoult.hitPoint);
@@ -178,7 +181,7 @@ vec3 getSkyColor(Ray ray)
 float SampleDensity(vec3 samplePoint)
 {
     //-1.f <-> 1.f
-    vec3 textureCoord = samplePoint / vec3(13.f, 16.f, 5.f);
+    vec3 textureCoord = samplePoint / vec3(13.f, 13.f, 5.f);
     //0.f <-> 1.f;
     textureCoord = (textureCoord + 1.f) / 2.f;
     
@@ -188,7 +191,7 @@ float SampleDensity(vec3 samplePoint)
 
 vec3 CalculateClosestFaceNormal(vec3 pos)
 {
-    vec3 o = (vec3(13.f, 16.f, 5.f)- abs(pos));
+    vec3 o = (vec3(13.f, 13.f, 5.f)- abs(pos));
     vec3 normal;
     if (o.x < o.y && o.x < o.z)
     {
@@ -221,7 +224,7 @@ vec3 CalculateNormal(vec3 pos)
 
     vec3 volumeNormal = normalize(vec3(dx,dy,dz));
 
-    vec3 o = vec3(13.f, 16.f, 5.f) - abs(pos);
+    vec3 o = vec3(13.f, 13.f, 5.f) - abs(pos);
     float faceWeight = min(o.x, min(o.y, o.z));
     vec3 faceNormal = CalculateClosestFaceNormal(pos);
 
@@ -333,7 +336,7 @@ HitInfo FindNextSurface(Ray ray, bool bFindNextEntry, float stepSize, float maxD
     HitInfo closestHit;
     closestHit.didHit = false;
     closestHit.densityAlongRay = 0.f;
-    closestHit.distance = 0.f;
+    closestHit.distance = FLT_MAX;
     closestHit.hitPoint = vec3(0.f);
     closestHit.normal = vec3(0.f);
 
@@ -364,6 +367,7 @@ HitInfo FindNextSurface(Ray ray, bool bFindNextEntry, float stepSize, float maxD
             closestHit.distance = (d + surfaceSDF);
             closestHit.hitPoint = ray.origin + ray.direction * (d + surfaceSDF);
             closestHit.densityAlongRay = SampleDensity(closestHit.hitPoint) * surfaceSDF * densityMultiplayer;
+            closestHit.normal = CalculateNormal(closestHit.hitPoint);
             break;
         }
         else
@@ -377,43 +381,8 @@ HitInfo FindNextSurface(Ray ray, bool bFindNextEntry, float stepSize, float maxD
         closestHit.didHit = true;
         closestHit.distance = dMax;
         closestHit.hitPoint = ray.origin + ray.direction * dMax;
+        closestHit.normal = CalculateNormal(closestHit.hitPoint);
     }
-
-    // for (float d = dMin + 0.001f; d <= dMax; d += stepSize)
-    // {
-    //     bool isLastStep = d + stepSize >= dMax;
-    //     vec3 position = ray.origin + ray.direction * d;
-    //     float density = SampleDensity(position) * stepSize * densityMultiplayer;
-    //     bool insideFluid = density > 0.f;
-    //     if (insideFluid)
-    //     {
-    //         closestHit.densityAlongRay += density;
-    //         lastPositionInFluid = position;
-    //         hasEnteredFluid = true;
-    //     }
-    //     else
-    //     {
-    //         hasExittedFluid = true;
-    //     }
-
-    //     bool found;
-    //     if (bFindNextEntry)
-    //     {
-    //         found = insideFluid && hasExittedFluid;
-    //     }
-    //     else
-    //     {
-    //         found = hasEnteredFluid && (!insideFluid || isLastStep);
-    //     }
-
-    //     if ( found )
-    //     {
-    //         closestHit.distance = d - dMin;
-    //         closestHit.didHit = true;
-    //         closestHit.hitPoint = lastPositionInFluid;
-    //         break;
-    //     }
-    // }
 
     return closestHit;
 }
@@ -479,12 +448,12 @@ vec3 TraceEnviroment(Ray ray)
     return getSkyColor(ray);
 }
 
-vec3 TraceObjects(Ray ray)
+HitInfo TraceObjects(Ray ray)
 {
     HitInfo closestHit;
     closestHit.didHit = false;
     closestHit.distance = FLT_MAX;
-    int ClosestObject = -1;
+    closestHit.hitObject = -1;
 
     for(int i = 0; i < ubo.objectsInScene; i++)
     {
@@ -493,16 +462,11 @@ vec3 TraceObjects(Ray ray)
         if(objectHit.distance < closestHit.distance)
         {
             closestHit = objectHit;
-            ClosestObject = i;
+            closestHit.hitObject = i;
         }
     }
 
-    if(closestHit.didHit)
-    {
-        return objects[ClosestObject].color;
-    }
-
-    return vec3(0.f);
+    return closestHit;
 }
 
 vec3 TraceSPH(Ray ray)
@@ -519,78 +483,89 @@ vec3 TraceSPH(Ray ray)
     vec3 Contribution = vec3(1.f);
     vec3 Light = vec3(0.f);
 
-    bool bRayFromInsideFluid = IsInsideFluid(ray.origin);
-
     for (int i = 0; i < ubo.bounces; i++)
     {
-        HitInfo boxHit = AABox(ray, BoxCenter, BoxSize);
-        // boxHit.didHit = false;
-        // boxHit.distance = FLT_MAX;
-        hit = FindNextSurface(ray, !bRayFromInsideFluid, ubo.stepSize * (i+1), boxHit.distance);
+        HitInfo objectHit = TraceObjects(ray);
+        bool bRayFromInsideFluid = IsInsideFluid(ray.origin);
+        HitInfo simulationHit = FindNextSurface(ray, !bRayFromInsideFluid, ubo.stepSize * (i+1), objectHit.distance);
 
-        bool bUseBoxHit = boxHit.didHit && boxHit.distance <= hit.distance;
-        if (!hit.didHit)
+        bool bUseObjectHit = objectHit.didHit && objectHit.distance <= simulationHit.distance;
+        if (bUseObjectHit)
         {
-            //transmittance *= Transmittance(CalculateDensityAlongRay(cubeHit.hitPoint, cubeHit.normal, densityStepSize));
-            // Contribution *= exp(-hit.densityAlongRay * ubo.extinctionCoeff);
-            // light += Light(rayPos, rayDir) * transmittance;
-            // transmittance = 0;
-            // Contribution = vec3(0.f);
-            Light += TraceEnviroment(ray) * Contribution;
-            Contribution = vec3(0.f);
+            //it should bounc
+            Contribution *= objects[objectHit.hitObject].color;
+            ray.origin = objectHit.hitPoint + objectHit.normal * 0.001f;
+            ray.direction = SunDirection;
+            Contribution *= (dot(objectHit.normal, ray.direction) * 0.5 + 0.5);
             break;
         }
 
-        Contribution *= exp(-hit.densityAlongRay * ubo.extinctionCoeff);
+        Contribution *= exp(-simulationHit.densityAlongRay * ubo.extinctionCoeff);
 
-        if (bUseBoxHit)
+        if (!simulationHit.didHit)
         {
-            Light += TraceEnviroment(ray) * Contribution;
-            // Light = vec3(1.f, 0.f, 0.f);
-            return Light;
+            break;
         }
 
-        hit.normal = CalculateNormal(hit.hitPoint);
-        if (dot(hit.normal, ray.direction) > 0.f)
+
+
+        if (dot(simulationHit.normal, ray.direction) > 0.f)
         {
-            hit.normal = -hit.normal;
+            simulationHit.normal = -simulationHit.normal;
         }
 
-        float iorA = bRayFromInsideFluid ? 1.333f : 1.f;
-        float iorB = bRayFromInsideFluid ? 1.0f : 1.333f;
+        float iorA = bRayFromInsideFluid ? WaterIOR : 1.f;
+        float iorB = bRayFromInsideFluid ? 1.0f : WaterIOR;
 
         //light info
-        lightInfo.reflectWeight = CalculateReflectance(ray.direction, hit.normal, iorA, iorB);
+        lightInfo.reflectWeight = CalculateReflectance(ray.direction, simulationHit.normal, iorA, iorB);
         lightInfo.refractWeight = 1.f - lightInfo.reflectWeight;
-        lightInfo.refractDir = refract(ray.direction, hit.normal, iorA / iorB);
-        lightInfo.reflectDir = reflect(ray.direction, hit.normal);
-        float refractDensity = CalculateDensityAlongRay(hit.hitPoint, lightInfo.refractDir, 0.1);
-        float reflectDensity = CalculateDensityAlongRay(hit.hitPoint, lightInfo.reflectDir, 0.1);
+        lightInfo.refractDir = refract(ray.direction, simulationHit.normal, iorA / iorB);
+        lightInfo.reflectDir = reflect(ray.direction, simulationHit.normal);
+        float refractDensity = CalculateDensityAlongRay(simulationHit.hitPoint, lightInfo.refractDir, 0.1);
+        float reflectDensity = CalculateDensityAlongRay(simulationHit.hitPoint, lightInfo.reflectDir, 0.1);
 
         bool refractPath = lightInfo.refractWeight*refractDensity > lightInfo.reflectWeight*reflectDensity;
-        // refractPath = true;
 
         if (refractPath)
         {
-            //reflect light Aprximation
-            //Light += Enviroment(ray.origin, lightInfo.reflectDir) * Contribution * exp(-reflectDensity*ubo.extinctionCoeff) * lightInfo.reflectWeight;
             ray.direction = lightInfo.reflectDir;
-            Light += TraceEnviroment(ray) * Contribution * exp(-reflectDensity*ubo.extinctionCoeff) * lightInfo.reflectWeight;
+            //chek if light is blocked
+            vec3 color;
+            int objectId = TraceObjects(ray).hitObject;
+            if( objectId != -1)
+            {
+                color = objects[objectId].color;
+            }
+            else
+            {
+                color = getSkyColor(ray);
+            }
+            Light += color * Contribution * exp(-reflectDensity*ubo.extinctionCoeff) * lightInfo.reflectWeight;
             ray.direction = lightInfo.refractDir;
             remidingWeight = lightInfo.refractWeight;
         }
         else
         {
-            //refract light Aprximation
-            //Light += Enviroment(ray.origin, lightInfo.refractDir) * Contribution * exp(-refractDensity*ubo.extinctionCoeff) * lightInfo.refractWeight;
             ray.direction = lightInfo.refractDir;
-            Light += TraceEnviroment(ray) * Contribution * exp(-refractDensity*ubo.extinctionCoeff) * lightInfo.refractWeight;
+            //chek if light is blocked
+            vec3 color;
+            int objectId = TraceObjects(ray).hitObject;
+            if( objectId != -1)
+            {
+                color = objects[objectId].color;
+            }
+            else
+            {
+                color = getSkyColor(ray);
+            }
+            Light += color * Contribution * exp(-refractDensity*ubo.extinctionCoeff) * lightInfo.refractWeight;
             ray.direction = lightInfo.reflectDir;
             remidingWeight = lightInfo.reflectWeight;
         }
 
-        ray.origin = hit.hitPoint;
-        bRayFromInsideFluid = refractPath != bRayFromInsideFluid;
+        ray.origin = simulationHit.hitPoint + ray.direction * 0.0001f;
+        //bRayFromInsideFluid = refractPath != bRayFromInsideFluid;
     }
 
     // return vec3(hit.densityAlongRay + CalculateDensityAlongRay(ray.origin, ray.direction, 0.1));
@@ -600,24 +575,24 @@ vec3 TraceSPH(Ray ray)
     //     Light += Enviroment(ray.origin, ray.direction) * Contribution * exp(-CalculateDensityAlongRay(ray.origin, ray.direction, 0.1)*ubo.extinctionCoeff);
     // }
     // else
-    {
-        // Light += Enviroment(ray.origin, ray.direction) * Contribution * exp(-CalculateDensityAlongRay(ray.origin, ray.direction, 0.1)*ubo.extinctionCoeff) * remidingWeight;
-        Light += TraceEnviroment(ray) * Contribution * exp(-CalculateDensityAlongRay(ray.origin, ray.direction, 0.1)*ubo.extinctionCoeff) * remidingWeight;
-    }
-    //Light += Enviroment(ray.origin, ray.direction);
+    // {
+    //     // Light += Enviroment(ray.origin, ray.direction) * Contribution * exp(-CalculateDensityAlongRay(ray.origin, ray.direction, 0.1)*ubo.extinctionCoeff) * remidingWeight;
+    //     Light += TraceEnviroment(ray) * Contribution * exp(-CalculateDensityAlongRay(ray.origin, ray.direction, 0.1)*ubo.extinctionCoeff) * remidingWeight;
+    // }
 
-    // return vec3((hit.normal + 1.f) / 2.f);
-    // return vec3(hit.densityAlongRay * 1000.f, hit.distance, 0.f);
+    vec3 color;
+    int objectId = TraceObjects(ray).hitObject;
+    if( objectId != -1)
+    {
+        color = vec3(0.2f);
+    }
+    else
+    {
+        color = getSkyColor(ray);
+    }
+    Light += color * Contribution * exp(-CalculateDensityAlongRay(ray.origin, ray.direction, 0.1)*ubo.extinctionCoeff) * remidingWeight;
+
     return Light;
-
-    if(!hit.didHit)
-    {
-        return vec3(0.f);
-    }
-
-    hit.normal += 1.f;
-    hit.normal *= 0.5f;
-    return hit.normal;
 }
 
 
@@ -630,9 +605,6 @@ void main()
 
     vec2 uv = id / vec2(imageSize(outputImage).xy);
     uv = uv * 2.0f - 1.0f; // pixel cord from -1 to 1;
-    
-    // vec4 color = vec4( abs(uv.x), abs(uv.y), 0.5, 1.0 );
-
     vec4 target = inverse(ubo.proj) * vec4(uv, -1.f, 1.f);
 
     Ray ray;
@@ -641,40 +613,29 @@ void main()
 
     vec3 light = TraceSPH(ray);
     // vec3 light = TraceEnviroment(ray);
-    // vec3 light = TraceObjects(ray);
+    // HitInfo objectHit = TraceObjects(ray);
+    // vec3 light = vec3(0.f);
 
+    // if(objectHit.didHit)
+    // {
+    //     vec3 objectColor = objects[objectHit.hitObject].color;
+
+    //     Ray shadowRay;
+    //     shadowRay.origin = objectHit.hitPoint + objectHit.normal * 0.001f;
+    //     shadowRay.direction = SunDirection;
+    //     bool bInShadow  = TraceObjects(shadowRay).didHit;
+
+    //     light = objectColor * (dot(objectHit.normal, SunDirection) * 0.5 + 0.5) * (bInShadow ? 0.2 : 1.f);
+    // }
+    // else
+    // {
+    //     light = getSkyColor(ray);
+    // }
+
+    //gamma corection
     vec3 outColor = vec3(0.f);
     float gamma = 2.2;
     outColor = pow(light, vec3(1.0/gamma));
-    //outColor = light;
-    // if (hit.didHit)
-    // {
-    //     vec3 lightDir = vec3(-1.f);
-    //     float lightAmmout = dot(hit.normal, lightDir);
-    //     lightAmmout = max(lightAmmout, 0.02f);
-    //     outColor = lightAmmout * vec3(0.f, 0.f, 1.f);
-
-    //     outColor = (hit.normal + 1.f) / 2.f;
-    //     // outColor = hit.normal;
-    // }
-    // else
-    // {
-    //     outColor = getSkyColor(ray);
-    // }
-
-    // vec2 texCoord = (uv + 1.f) / 2.f;
-    // float value = texture(DensityVolume, vec3(texCoord, 0.f)).r;
-    // outColor = vec3(value);
-
-    // bool ObjectHit = RayBox(ray, objects[0].transform).didHit;
-    // if(ObjectHit)
-    // {
-    //     outColor = objects[0].color;
-    // }
-    // else
-    // {
-    //     outColor = vec3(0.f);
-    // }
     
     imageStore(outputImage, id, vec4(outColor, 1.f));
 }

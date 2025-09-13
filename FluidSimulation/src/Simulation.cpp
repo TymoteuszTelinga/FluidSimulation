@@ -1,6 +1,5 @@
 #include "Simulation.h"
 #include "Core/Input.h"
-//#include <glm/glm.hpp>
 #include <glm/gtx/quaternion.hpp>
 #include <imgui/imgui.h>
 
@@ -12,9 +11,12 @@ Simulation::Simulation(const ApplicationSpecification& spec)
 	m_Camera->SetPosition(glm::vec3(0.f, 0.f, -40.f));
 
 	//white Cube
-	AddObject(glm::vec3(0.f), glm::vec3(0.f), glm::vec3(1.f), glm::vec3(1.f));
+	AddObject(glm::vec3(0.f, 0.f, 0.f), glm::vec3(0.f, 0.f, 0.f), glm::vec3(1.f, 1.f, 1.f), glm::vec3(1.f));
 	//floor
-	AddObject(glm::vec3(0.f, -13.f, 0.f), glm::vec3(0.f), glm::vec3(1.f), glm::vec3(1.f, 0.5f, 0.3f));
+	AddObject(glm::vec3( 8.f, 13.f,  8.f), glm::vec3(0.f, 0.f, 0.f), glm::vec3(8.f, 0.1f, 8.f), glm::vec3(1.f, 1.f, 0.f));
+	AddObject(glm::vec3( 8.f, 13.f, -8.f), glm::vec3(0.f, 0.f, 0.f), glm::vec3(8.f, 0.1f, 8.f), glm::vec3(1.f, 0.f, 0.f));
+	AddObject(glm::vec3(-8.f, 13.f,  8.f), glm::vec3(0.f, 0.f, 0.f), glm::vec3(8.f, 0.1f, 8.f), glm::vec3(0.f, 1.f, 0.f));
+	AddObject(glm::vec3(-8.f, 13.f, -8.f), glm::vec3(0.f, 0.f, 0.f), glm::vec3(8.f, 0.1f, 8.f), glm::vec3(0.f, 0.f, 1.f));
 
 	m_Renderer->UpdateSceneObjects(m_Objects);
 
@@ -222,7 +224,7 @@ void Simulation::AddObject(glm::vec3 position, glm::vec3 rotation, glm::vec3 sca
 	glm::mat4 Translate = glm::translate(glm::mat4(1.0f), position);
 	glm::mat4 Scale = glm::scale(glm::mat4(1.0f), scale);
 
-	glm::quat quatRotation = glm::quat(rotation);
+	glm::quat quatRotation = glm::quat(glm::radians(rotation));
 	glm::mat4 Rotation = glm::toMat4(quatRotation);
 
 	Object object;

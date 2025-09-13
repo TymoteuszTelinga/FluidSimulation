@@ -85,6 +85,49 @@ float PressureFromDensity(float density)
 	return (density - u_Spec.TargetDensity) * u_Spec.PressureMultiplier;
 }
 
+float SDFBox(vec3 point)
+{
+    const vec3 center = vec3(0.f);
+    const vec3 size = vec3(1.f);
+    vec3 d = abs(point - center) - size;
+    return length(max(d, 0.0)) + min(max(d.x, max(d.y, d.z)), 0.0);
+}
+
+vec3 BoxNormal(vec3 position)
+{
+    const vec3 center = vec3(0.f);
+    const vec3 size = vec3(1.f);
+    vec3 relPos = position - center;
+    
+    vec3 d = abs(relPos) - size;
+    
+    // Determine which face is closest
+    if(d.x > d.y && d.x > d.z) {
+        return vec3(sign(relPos.x), 0.0, 0.0);
+    } else if(d.y > d.z) {
+        return vec3(0.0, sign(relPos.y), 0.0);
+    } else {
+        return vec3(0.0, 0.0, sign(relPos.z));
+    }
+}
+
+bool checkBoxCollision(vec3 position, mat4 box, out vec3 normal, out float penetration) 
+{
+    // Transform particle position to box local space
+    vec3 localPosition = (inverse(box) * vec4(position, 1.0)).xyz;
+    float distance = SDFBox(localPosition);
+    
+    if(distance < u_Spec.Radius/2.f) 
+    {
+        penetration = u_Spec.Radius - distance;
+
+        vec3 localNormal = BoxNormal(localPosition);
+        normal = normalize((box * vec4(localNormal, 0.0)).xyz);
+        return true;
+    }
+    return false;
+}
+
 void ResolveCollisions(inout Particle p)
 {
 	const float halfHeight = u_Spec.Height;
@@ -109,6 +152,16 @@ void ResolveCollisions(inout Particle p)
 		p.position.z = halfDepth * sign(p.position.z);
 		p.velocity.z *= -1 * CollisionDamping;
 	}
+
+    float CollisionPenetration = 0.f;
+    vec3 CollisionNormal = vec3(0.f);
+    mat4 box = mat4(1.f);
+    if ( checkBoxCollision(p.position, box, CollisionNormal, CollisionPenetration))
+    {
+        p.position += CollisionNormal * CollisionPenetration;
+        // Reflect velocity along normal
+        p.velocity = reflect(p.velocity, CollisionNormal) * 0.95f;
+    }
 }
 
 //--------------EntryPoints--------------
