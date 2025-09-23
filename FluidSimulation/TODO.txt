@@ -8,3 +8,41 @@ SYMULACJA
 - box colision
 - box ray tracing
 - rau bounces increses
+
+Wczytywanie,
+dwa różne płyny, - imposible
+dorobić interfejs, 
+dadac rendering setings do konfiguracji.
+//plik konfiguracyjny,
+//dwie różne spawnery,
+system basenów kanały - imposible
+
+
+
+wstep na 1,5 stron,
+
+Podstawy symulacji cieczy 12 stron
+zwiększyć teorię historyczne metody inne systemy.
+Podstawy teoretyczne ray tracingu 8 stron
+Opisać historię ray tracingu
+
+Projekt rozwiązania
+Schematy
+
+Wykorzystane technologie do wykorzystania 3 strony
+
+Implementacja.
+Zrzut ekranu kodu
+
+Testy ok
+---test naczyń połączonych
+
+Podsumawine na minimum 1 stronę
+
+Bibliografia minimum 17-20.
+-ray tracing
+-marching cubes
+-ray marching/ volumetrick rendering
+-ray-box algorytm
+-snell law
+-refraction and reflection

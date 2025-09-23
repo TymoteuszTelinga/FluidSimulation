@@ -1,0 +1,46 @@
+Rendering:
+  Camera: [0, 0, 0]
+  StepSize: 0.0199999996
+  Bounces: 2
+  ExtinctionCoeff: [7.23000002, 2.71000004, 1.40999997]
+  Sun: [-1, -1, -1]
+  IOR: 1.33299994
+SimulationSpec:
+  Extend: [6, 13, 5]
+  CollisionDamping: 0.949999988
+  KernelRadius: 0.300000012
+  TargetDensity: 105.75
+  PressureMultiplayer: 300.5
+  ViscosityStrength: 0.100000001
+  ParticlesCout: 32768
+Obstacles:
+  - Position: [0, 4, 0]
+    Rotation: [0, -0, 0]
+    Scale: [1, 13, 7.0999999]
+    Color: [1, 1, 1]
+    UseCollision: true
+  - Position: [8, 13, 8]
+    Rotation: [0, -0, 0]
+    Scale: [8, 0.100000001, 8]
+    Color: [1, 1, 0]
+    UseCollision: false
+  - Position: [8, 13, -8]
+    Rotation: [0, -0, 0]
+    Scale: [8, 0.100000001, 8]
+    Color: [1, 0, 0]
+    UseCollision: false
+  - Position: [-8, 13, 8]
+    Rotation: [0, -0, 0]
+    Scale: [8, 0.100000001, 8]
+    Color: [0, 1, 0]
+    UseCollision: false
+  - Position: [-8, 13, -8]
+    Rotation: [0, -0, 0]
+    Scale: [8, 0.100000001, 8]
+    Color: [0, 0, 1]
+    UseCollision: false
+Spawners:
+  - Center: [4, 8, 0]
+    Size: [5, 5, 9]
+  - Center: [-4, 2, 0]
+    Size: [5, 18.2999992, 9]

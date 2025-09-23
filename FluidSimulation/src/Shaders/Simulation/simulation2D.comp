@@ -26,7 +26,9 @@ layout(std140, binding = 0) uniform SimulationSpec
     float Radius;
     float TargetDensity;
     float PressureMultiplier;
+    float ViscosityStrength;
     int ParticlesCount;
+    int CollisionObjects;
 } u_Spec;
 
 layout(std140, binding = 1) buffer ParticleSSBO
@@ -42,6 +44,18 @@ layout(std430, binding = 2) buffer SpatialIndices
 layout(std430, binding = 3) buffer SpatialLookUp
 {
 	uint LookUp[];
+};
+
+struct Object
+{
+    mat4 transform;
+    vec3 color;
+    float useCollision;
+};
+
+layout(std430, binding = 5) buffer ObjectsBuffer
+{
+	Object objects[];
 };
 
 //--------------HelperFunctions--------------
@@ -117,9 +131,9 @@ bool checkBoxCollision(vec3 position, mat4 box, out vec3 normal, out float penet
     vec3 localPosition = (inverse(box) * vec4(position, 1.0)).xyz;
     float distance = SDFBox(localPosition);
     
-    if(distance < u_Spec.Radius/2.f) 
+    if(distance < 0.f) 
     {
-        penetration = u_Spec.Radius - distance;
+        penetration = abs(distance);
 
         vec3 localNormal = BoxNormal(localPosition);
         normal = normalize((box * vec4(localNormal, 0.0)).xyz);
@@ -153,14 +167,20 @@ void ResolveCollisions(inout Particle p)
 		p.velocity.z *= -1 * CollisionDamping;
 	}
 
-    float CollisionPenetration = 0.f;
-    vec3 CollisionNormal = vec3(0.f);
-    mat4 box = mat4(1.f);
-    if ( checkBoxCollision(p.position, box, CollisionNormal, CollisionPenetration))
+    for(int i = 0; i < u_Spec.CollisionObjects; i++)
     {
-        p.position += CollisionNormal * CollisionPenetration;
-        // Reflect velocity along normal
-        p.velocity = reflect(p.velocity, CollisionNormal) * 0.95f;
+        if(objects[i].useCollision <= 0.f)
+        {
+            continue;
+        }
+
+        float CollisionPenetration = 0.f;
+        vec3 CollisionNormal = vec3(0.f);
+        if ( checkBoxCollision(p.position, objects[i].transform, CollisionNormal, CollisionPenetration))
+        {
+            p.position += CollisionNormal * CollisionPenetration;
+            p.velocity = reflect(p.velocity, CollisionNormal) * CollisionDamping;
+        }
     }
 }
 
@@ -260,7 +280,7 @@ void ViscosityStep()
 
     const vec3 samplePoint = p.predictedPosition;
     const vec3 velocity = p.velocity;
-    const float viscosityStrength = 0.06f;//ubo
+    // const float viscosityStrength = 0.06f;//ubo
 
     vec3 viscosityForce = vec3(0.f);
 
@@ -295,7 +315,7 @@ void ViscosityStep()
         }
     }
 
-    p.velocity += viscosityForce * viscosityStrength * push.deltaTime;
+    p.velocity += viscosityForce * u_Spec.ViscosityStrength * push.deltaTime;
 
     particles[index] = p;
 }

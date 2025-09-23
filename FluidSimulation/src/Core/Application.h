@@ -31,6 +31,8 @@ public:
 private:
 	void OnEventApp(Event& e);
 
+	void SetGUIColors();
+
 protected:
 	ApplicationSpecification m_Specification;
 	Scope<Renderer> m_Renderer;

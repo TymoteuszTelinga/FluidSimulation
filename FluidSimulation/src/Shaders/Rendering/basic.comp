@@ -11,6 +11,7 @@ layout(binding = 2) uniform UniformBufferObject
 	mat4 model;
 	mat4 view;
 	mat4 proj;
+    vec3 simulationExtend;
     vec3 cameraPos;
     float stepSize;
     bool DynamicCalculations;
@@ -18,20 +19,23 @@ layout(binding = 2) uniform UniformBufferObject
     int bounces;
     vec3 extinctionCoeff;
     int objectsInScene;
+    vec3 SunDir;
+    float IOR;
 } ubo;
 
 struct Object
 {
     mat4 transform;
     vec3 color;
+    float useCollision;
 };
 
-layout(std140, binding = 3) buffer ObjectsBuffer
+layout(std430, binding = 3) buffer ObjectsBuffer
 {
 	Object objects[];
 };
 
-const vec3 SunDirection = normalize(vec3(-1.f, -1.f, -1.f));
+// const vec3 SunDirection = normalize(vec3(-1.f, -1.f, -1.f));
 const float densityMultiplayer = 0.003f;
 
 const vec3 BoxCenter = vec3(0.f, 0.f, 0.f);
@@ -40,7 +44,7 @@ const vec3 BoxSize = vec3(1.f, 16.f, 1.f);
 const vec3 FloorCenter = vec3(0.f, 16.f, 0.f);
 const vec3 FloorSize = vec3(20.f, 0.1f, 20.f);
 
-const float WaterIOR = 1.333f;
+// const float WaterIOR = 1.333f;
 
 //--------------Defines--------------
 const float FLT_MAX = 3.402823466e+38;
@@ -74,8 +78,8 @@ bool intersectBox(Ray ray, out float d_min, out float d_max)
 {
     // Calculate intersection with each pair of planes along each axis
     vec3 invDir = 1.0 / ray.direction;
-    vec3 d1 = (-vec3(13.f, 13.f, 5.f) - ray.origin) * invDir;
-    vec3 d2 = ( vec3(13.f, 13.f, 5.f) - ray.origin) * invDir;
+    vec3 d1 = (-ubo.simulationExtend - ray.origin) * invDir;
+    vec3 d2 = ( ubo.simulationExtend - ray.origin) * invDir;
     
     // Find closest and furthest intersection for each axis
     vec3 tmin = min(d1, d2);
@@ -168,7 +172,7 @@ vec3 getSkyColor(Ray ray)
     const vec3 colSkyHorizon = vec3(1, 1, 1);
     const vec3 colSkyZenith = vec3(0.08, 0.37, 0.73);
 
-    float sun = pow(max(0, dot(ray.direction, SunDirection)), 50);
+    float sun = pow(max(0, dot(ray.direction, normalize(ubo.SunDir))), 50);
     float skyGradientT = pow(smoothstep(0, 0.4, -ray.direction.y), 0.35);
     float groundToSkyT = smoothstep(-0.01, 0, -ray.direction.y);
     vec3 skyGradient = mix(colSkyHorizon, colSkyZenith, skyGradientT);
@@ -181,17 +185,17 @@ vec3 getSkyColor(Ray ray)
 float SampleDensity(vec3 samplePoint)
 {
     //-1.f <-> 1.f
-    vec3 textureCoord = samplePoint / vec3(13.f, 13.f, 5.f);
+    vec3 textureCoord = samplePoint / ubo.simulationExtend;
     //0.f <-> 1.f;
     textureCoord = (textureCoord + 1.f) / 2.f;
     
-    const float iso_value = 0.2f * 105.75f;
+    const float iso_value = 0.1f * 105.75f;
     return texture(DensityVolume, textureCoord).r - iso_value;
 }
 
 vec3 CalculateClosestFaceNormal(vec3 pos)
 {
-    vec3 o = (vec3(13.f, 13.f, 5.f)- abs(pos));
+    vec3 o = (ubo.simulationExtend- abs(pos));
     vec3 normal;
     if (o.x < o.y && o.x < o.z)
     {
@@ -224,7 +228,7 @@ vec3 CalculateNormal(vec3 pos)
 
     vec3 volumeNormal = normalize(vec3(dx,dy,dz));
 
-    vec3 o = vec3(13.f, 13.f, 5.f) - abs(pos);
+    vec3 o = ubo.simulationExtend - abs(pos);
     float faceWeight = min(o.x, min(o.y, o.z));
     vec3 faceNormal = CalculateClosestFaceNormal(pos);
 
@@ -301,7 +305,7 @@ vec3 Enviroment(vec3 position, vec3 direction)
     const vec3 colSkyHorizon = vec3(1, 1, 1);
     const vec3 colSkyZenith = vec3(0.08, 0.37, 0.73);
 
-    float sun = pow(max(0, dot(direction, SunDirection)), 50);
+    float sun = pow(max(0, dot(direction, normalize(ubo.SunDir))), 50);
     float skyGradientT = pow(smoothstep(0, 0.4, -direction.y), 0.35);
     float groundToSkyT = smoothstep(-0.01, 0, -direction.y);
     vec3 skyGradient = mix(colSkyHorizon, colSkyZenith, skyGradientT);
@@ -421,10 +425,10 @@ vec3 TraceEnviroment(Ray ray)
     {
         Ray shadowRay;
         shadowRay.origin = boxHit.hitPoint;
-        shadowRay.direction = SunDirection;
+        shadowRay.direction = normalize(ubo.SunDir);
         bool bInShadow = AABox(shadowRay, FloorCenter, FloorSize).didHit;
 
-        return vec3(0.9f, 1.0f, 0.9f) * (dot(boxHit.normal, SunDirection) * 0.5 + 0.5) * (bInShadow ? 0.2 : 1.f);
+        return vec3(0.9f, 1.0f, 0.9f) * (dot(boxHit.normal, normalize(ubo.SunDir)) * 0.5 + 0.5) * (bInShadow ? 0.2 : 1.f);
     }
     else if (floorHit.didHit)
     {
@@ -433,16 +437,16 @@ vec3 TraceEnviroment(Ray ray)
 
         Ray shadowRay;
         shadowRay.origin = floorHit.hitPoint;
-        shadowRay.direction = SunDirection;
+        shadowRay.direction = normalize(ubo.SunDir);
 
-        vec3 shadowMap = exp(-CalculateDensityAlongRay(floorHit.hitPoint, SunDirection, 0.1f * 2.f) * 2.f * ubo.extinctionCoeff);
+        vec3 shadowMap = exp(-CalculateDensityAlongRay(floorHit.hitPoint, normalize(ubo.SunDir), 0.1f * 2.f) * 2.f * ubo.extinctionCoeff);
         bool bInShadow = AABox(shadowRay, BoxCenter, BoxSize).didHit;
         // bInShadow = false;
         if (bInShadow)
         {
             shadowMap *= 0.2f;
         }
-        return floorColor * (dot(floorHit.normal, SunDirection) * 0.5 + 0.5) * shadowMap;
+        return floorColor * (dot(floorHit.normal, normalize(ubo.SunDir)) * 0.5 + 0.5) * shadowMap;
     }
 
     return getSkyColor(ray);
@@ -495,7 +499,7 @@ vec3 TraceSPH(Ray ray)
             //it should bounc
             Contribution *= objects[objectHit.hitObject].color;
             ray.origin = objectHit.hitPoint + objectHit.normal * 0.001f;
-            ray.direction = SunDirection;
+            ray.direction = normalize(ubo.SunDir);
             Contribution *= (dot(objectHit.normal, ray.direction) * 0.5 + 0.5);
             break;
         }
@@ -514,8 +518,8 @@ vec3 TraceSPH(Ray ray)
             simulationHit.normal = -simulationHit.normal;
         }
 
-        float iorA = bRayFromInsideFluid ? WaterIOR : 1.f;
-        float iorB = bRayFromInsideFluid ? 1.0f : WaterIOR;
+        float iorA = bRayFromInsideFluid ? ubo.IOR : 1.f;
+        float iorB = bRayFromInsideFluid ? 1.0f :ubo.IOR;
 
         //light info
         lightInfo.reflectWeight = CalculateReflectance(ray.direction, simulationHit.normal, iorA, iorB);

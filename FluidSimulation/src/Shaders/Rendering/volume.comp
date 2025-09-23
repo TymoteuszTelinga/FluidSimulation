@@ -20,7 +20,9 @@ layout(std140, binding = 0) uniform SimulationSpec
     float Radius;
     float TargetDensity;
     float PressureMultiplier;
+    float ViscosityStrength;
     int ParticlesCount;
+    int CollisionObjects;
 } u_Spec;
 
 layout(std140, binding = 1) buffer ParticleSSBO

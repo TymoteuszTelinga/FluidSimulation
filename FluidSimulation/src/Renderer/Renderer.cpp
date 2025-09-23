@@ -11,87 +11,35 @@
 #include "Camera.h"
 #include "Utilities.h"
 
-static struct Instance
-{
-	alignas(16) glm::vec3 position;
-	alignas(4)	float density;
-	alignas(16) glm::vec3 velocity;
-	alignas(16) glm::vec3 predictedPosition;
+static std::vector<Particle> instances;
 
-	static VkVertexInputBindingDescription GetBindingDescription()
-	{
-		VkVertexInputBindingDescription description =
-		{
-			.binding = 1,
-			.stride = sizeof(Instance),
-			.inputRate = VK_VERTEX_INPUT_RATE_INSTANCE
+//static struct UniformBufferObject
+//{
+//	alignas(16) glm::mat4 model = glm::mat4(1.f);
+//	alignas(16) glm::mat4 view  = glm::mat4(1.f);
+//	alignas(16) glm::mat4 proj  = glm::mat4(1.f);
+//	alignas(16) glm::vec3 cameraPos = glm::vec3(0.f);
+//	//grafics setings
+//	float StepSize = 0.02f;
+//	bool bDynamicCalculations = true;
+//	float SamplingStep = 0.1f;
+//	int32_t Bounces = 2;
+//	alignas(16) glm::vec3 ExtinctionCoeff = glm::vec3(7.23f, 2.71f, 1.41f);
+//	int32_t ObjectsInScene = 0;
+//} s_RenderingUBO;
 
-		};
-		return description;
-	}
-
-	static std::vector<VkVertexInputAttributeDescription> GetAtributeDescription()
-	{
-		std::vector<VkVertexInputAttributeDescription> descriptions;
-
-		//position attrib
-		{
-			VkVertexInputAttributeDescription InstanceAttribute =
-			{
-				.location = 3,
-				.binding = 1,
-				.format = VK_FORMAT_R32G32B32_SFLOAT,
-				.offset = offsetof(Instance, position)
-			};
-
-			descriptions.push_back(InstanceAttribute);
-		}
-
-		{
-			VkVertexInputAttributeDescription InstanceAttribute =
-			{
-				.location = 4,
-				.binding = 1,
-				.format = VK_FORMAT_R32G32B32_SFLOAT,
-				.offset = offsetof(Instance, velocity)
-			};
-
-			descriptions.push_back(InstanceAttribute);
-		}
-
-
-		return descriptions;
-	}
-};
-
-static std::vector<Instance> instances;
-
-static struct UniformBufferObject
-{
-	alignas(16) glm::mat4 model = glm::mat4(1.f);
-	alignas(16) glm::mat4 view  = glm::mat4(1.f);
-	alignas(16) glm::mat4 proj  = glm::mat4(1.f);
-	alignas(16) glm::vec3 cameraPos = glm::vec3(0.f);
-	//grafics setings
-	float StepSize = 0.02f;
-	bool bDynamicCalculations = true;
-	float SamplingStep = 0.1f;
-	int32_t Bounces = 1;
-	alignas(16) glm::vec3 ExtinctionCoeff = glm::vec3(7.23f, 2.71f, 1.41f);
-	int32_t ObjectsInScene = 0;
-} s_RenderingUBO;
-
-static struct SimulationUBO
-{
-	float simulationWidth = 26.f / 2.f;//in use
-	float simulationHeight = 26.f / 2.f;//in use
-	float simulationDepth = 10.f/ 2.f;//in use
-	float collisionDamping = 0.8f;//in use
-	float kernelRadius = 0.3;//in use
-	float targetDensity = 105.75f;//in use
-	float pressureMultiplier = 300.5f;//in use
-	uint32_t particlesCount = 256 * (128);//in use (256 * n) (128 + 64 + 16 + 8)
-} s_SimUBO;
+//static struct SimulationUBO
+//{
+//	float simulationWidth = 26.f / 2.f;//in use
+//	float simulationHeight = 26.f / 2.f;//in use
+//	float simulationDepth = 10.f/ 2.f;//in use
+//	float collisionDamping = 0.95f;//in use
+//	float kernelRadius = 0.3;//in use
+//	float targetDensity = 105.75f;//in use
+//	float pressureMultiplier = 300.5f;//in use
+//	uint32_t particlesCount = 256 * (128);//in use (256 * n) (128 + 64 + 16 + 8)
+//	uint32_t CollisionObjects = 0;
+//} s_SimUBO;
 
 Renderer::~Renderer()
 {
@@ -116,7 +64,7 @@ Renderer::~Renderer()
 	m_SortSetLayout.Free();
 	m_RayTracingLayout.Free();
 
-	m_InstanceBuffer.Free();
+	m_ParticleBuffer.Free();
 	m_SpatialBuffer.Free();
 	m_LookUpBuffer.Free();
 	m_ObjectTracing.Free();
@@ -179,18 +127,18 @@ void Renderer::Init(const std::string& applicationName, const Scope<Window>& win
 		x = x * 2.f - 1.f;
 		y = y * 2.f - 1.f;
 		z = z * 2.f - 1.f;
-		x *= s_SimUBO.simulationDepth;//s_SimUBO.simulationWidth;
-		y *= s_SimUBO.simulationDepth;//s_SimUBO.simulationHeight;
-		z *= s_SimUBO.simulationDepth;
+		x *= s_SimUBO.SimulationExtend.x;//s_SimUBO.simulationWidth;
+		y *= s_SimUBO.SimulationExtend.z;//s_SimUBO.simulationHeight;
+		z *= s_SimUBO.SimulationExtend.z;
 
 		minZ = std::min(z, minZ);
 		maxZ = std::max(z, maxZ);
 
 		x += 0.f;
-		y -= s_SimUBO.simulationHeight - s_SimUBO.simulationDepth;
+		y -= s_SimUBO.SimulationExtend.y - s_SimUBO.SimulationExtend.z;
 		z += 0.f;
 
-		Instance particle;
+		Particle particle;
 		particle.position = glm::vec3(x, y, z);
 		particle.predictedPosition = particle.position;
 		particle.density = 0.0f;
@@ -361,8 +309,8 @@ void Renderer::CreateDescriptorSetLayout()
 	{
 		.device = m_Device,
 		.stage = VK_SHADER_STAGE_COMPUTE_BIT,
-		.types = {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE}
-		//uniform, particles, spacial, lookup, volumeImage
+		.types = {VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, VK_DESCRIPTOR_TYPE_STORAGE_IMAGE, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER}
+		//uniform, particles, spacial, lookup, volumeImage, Cubes
 	};
 	m_SimulationSetLayout.Init(simulationLayoutSpec);
 
@@ -475,30 +423,18 @@ void Renderer::CreateComandPool()
 
 void Renderer::CreateInstanceBuffer()
 {
-	VkDeviceSize bufferSize = sizeof(Instance) * instances.size();
+	VkDeviceSize bufferSize = sizeof(Particle) * s_SimUBO.particlesCount;
 
-	BufferSpecification InstanceSpec =
+	BufferSpecification ParticleBufferSpec =
 	{
 		.device = m_Device,
 		.size = bufferSize,
 		.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
 		.properties = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT
 	};
-	m_InstanceBuffer.Init(InstanceSpec, nullptr);
+	m_ParticleBuffer.Init(ParticleBufferSpec, nullptr);
 
-	BufferSpecification stagingSpec =
-	{
-		.device = m_Device,
-		.size = bufferSize,
-		.usage = VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
-		.properties = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT
-	};
-	Buffer stagingBuffer;
-	stagingBuffer.Init(stagingSpec, instances.data());
-
-	CopyBuffer(stagingBuffer.GetHandle(), m_InstanceBuffer.GetHandle(), bufferSize);
-
-	stagingBuffer.Free();
+	RestartSimulation();
 
 	BufferSpecification SpatialSpec =
 	{
@@ -517,6 +453,16 @@ void Renderer::CreateInstanceBuffer()
 		.properties = VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT
 	};
 	m_LookUpBuffer.Init(LookupSpec, nullptr);
+
+	BufferSpecification ObjectSpec =
+	{
+		.device = m_Device,
+		.size = sizeof(Object) * 100,
+		.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+		.properties = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
+		.AllowWrite = true
+	};
+	m_ObjectTracing.Init(ObjectSpec, nullptr);
 }
 
 void Renderer::CreateUniformBuffers()
@@ -665,7 +611,7 @@ void Renderer::CreateGUIPass()
 
 void Renderer::CreateComputeDescriptorSets()
 {
-	m_ComputeDescriptorSets = m_SimulationSetLayout.CreateSets(m_DescriptorPool, MAX_IN_FLIGHT_FRAMES, { m_SimulationSpecBuffer, m_InstanceBuffer, m_SpatialBuffer, m_LookUpBuffer }, {m_DensityVolume});
+	m_ComputeDescriptorSets = m_SimulationSetLayout.CreateSets(m_DescriptorPool, MAX_IN_FLIGHT_FRAMES, { m_SimulationSpecBuffer, m_ParticleBuffer, m_SpatialBuffer, m_LookUpBuffer, m_ObjectTracing }, {m_DensityVolume});
 }
 
 void Renderer::CreateSortDescriptorSets()
@@ -696,21 +642,6 @@ void Renderer::InitRayTracing()
 		//image, Density, cameraUBO, objectBuffer
 	};
 	m_RayTracingLayout.Init(RayTracingLayoutSpec);
-
-	BufferSpecification ObjectSpec =
-	{
-		.device = m_Device,
-		.size = sizeof(Object) * 10,
-		.usage = VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
-		.properties = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT,
-		.AllowWrite = true
-	};
-	m_ObjectTracing.Init(ObjectSpec, nullptr);
-
-	Object test;
-	test.transform = glm::scale(glm::mat4(1.f), glm::vec3(1.f, 0.1f, 6.f));
-	test.Color = glm::vec3(1.f, 0.5f, 0.3f);
-	m_ObjectTracing.Write(&test, sizeof(Object));
 
 	ComputePipelineSpecification RayTracingSpec =
 	{
@@ -918,7 +849,7 @@ void Renderer::SimulationStep(float deltaTime)
 
 void Renderer::RestartSimulation()
 {
-	VkDeviceSize bufferSize = sizeof(Instance) * instances.size();
+	VkDeviceSize bufferSize = sizeof(Particle) * s_SimUBO.particlesCount;
 
 	BufferSpecification stagingSpec =
 	{
@@ -930,7 +861,7 @@ void Renderer::RestartSimulation()
 	Buffer stagingBuffer;
 	stagingBuffer.Init(stagingSpec, instances.data());
 
-	CopyBuffer(stagingBuffer.GetHandle(), m_InstanceBuffer.GetHandle(), bufferSize);
+	CopyBuffer(stagingBuffer.GetHandle(), m_ParticleBuffer.GetHandle(), bufferSize);
 
 	stagingBuffer.Free();
 }
@@ -1153,18 +1084,48 @@ void Renderer::UpdateCamera(const Camera& camera)
 	m_UniformBuffers[curentFrame].Write(&s_RenderingUBO, sizeof(s_RenderingUBO));
 }
 
-void Renderer::UpdateRenderSetings(float stepSize, bool bDynamic, float sampling)
+void Renderer::UpdateRenderSetings(const UniformBufferObject& renderSetings)
 {
-	s_RenderingUBO.StepSize = stepSize;
-	s_RenderingUBO.bDynamicCalculations = bDynamic;
-	s_RenderingUBO.SamplingStep = sampling;
-	//s_RenderingUBO.ExtinctionCoeff = glm::vec3(1.23f, 2.71f, 1.41f);
+	s_RenderingUBO.StepSize = renderSetings.StepSize;
+	s_RenderingUBO.bDynamicCalculations = renderSetings.bDynamicCalculations;
+	s_RenderingUBO.SamplingStep = renderSetings.SamplingStep;
+	s_RenderingUBO.Bounces = renderSetings.Bounces;
+	s_RenderingUBO.ExtinctionCoeff = renderSetings.ExtinctionCoeff;
+	s_RenderingUBO.SunDirection = renderSetings.SunDirection;
+	s_RenderingUBO.IOR = renderSetings.IOR;
+}
+
+//void Renderer::UpdateRenderSetings(float stepSize, bool bDynamic, float sampling)
+//{
+//	s_RenderingUBO.StepSize = stepSize;
+//	s_RenderingUBO.bDynamicCalculations = bDynamic;
+//	s_RenderingUBO.SamplingStep = sampling;
+//	//s_RenderingUBO.ExtinctionCoeff = glm::vec3(1.23f, 2.71f, 1.41f);
+//}
+
+void Renderer::UpdateSimulatonSetings(const SimulationUBO& setings)
+{
+	s_SimUBO = setings;
+	s_SimUBO.CollisionObjects = s_RenderingUBO.ObjectsInScene;
+	s_RenderingUBO.simulationExtend = s_SimUBO.SimulationExtend;
+	m_SimulationSpecBuffer.Write(&s_SimUBO, sizeof(s_SimUBO));
 }
 
 void Renderer::UpdateSceneObjects(const std::vector<Object>& objects)
 {
 	m_ObjectTracing.Write(objects.data(), sizeof(Object) * objects.size());
 	s_RenderingUBO.ObjectsInScene = objects.size();
+
+	s_SimUBO.CollisionObjects = objects.size();
+	m_SimulationSpecBuffer.Write(&s_SimUBO, sizeof(s_SimUBO));
+}
+
+void Renderer::InitializeParticles(const std::vector<Particle>& particles)
+{
+	instances.clear();
+	instances = particles;
+
+	RestartSimulation();
 }
 
 void Renderer::RunSortStep(ComputePipeline& sortStep, uint32_t size, uint32_t algorithm)

@@ -34,6 +34,8 @@ Application::Application(const ApplicationSpecification& spec)
 		style.Colors[ImGuiCol_WindowBg].w = 1.0f;
 	}
 
+	SetGUIColors();
+
 	ImGui_ImplGlfw_InitForVulkan(m_Window->GetWindow(), true);
 	ImGui_ImplVulkan_InitInfo init_info = {};
 	init_info.ApiVersion	 = VK_API_VERSION_1_0;
@@ -153,4 +155,48 @@ void Application::OnEventApp(Event& e)
 {
 	//Log Event
 	OnEvent(e);
+}
+
+void Application::SetGUIColors()
+{
+	ImVec4* colors = ImGui::GetStyle().Colors;
+	colors[ImGuiCol_WindowBg] = ImVec4(0.10f, 0.10f, 0.11f, 1.00f);
+
+	colors[ImGuiCol_FrameBg] = ImVec4(0.20f, 0.20f, 0.21f, 1.00f);
+	colors[ImGuiCol_FrameBgHovered] = ImVec4(0.30f, 0.31f, 0.31f, 1.00f);
+	colors[ImGuiCol_FrameBgActive] = ImVec4(0.15f, 0.15f, 0.15f, 1.00f);
+
+	colors[ImGuiCol_TitleBg] = ImVec4(0.15f, 0.15f, 0.15f, 1.00f);
+	colors[ImGuiCol_TitleBgActive] = ImVec4(0.15f, 0.15f, 0.15f, 1.00f);
+	colors[ImGuiCol_TitleBgCollapsed] = ImVec4(0.15f, 0.15f, 0.15f, 1.00f);
+
+	colors[ImGuiCol_Button] = ImVec4(0.20f, 0.20f, 0.21f, 1.00f);
+	colors[ImGuiCol_ButtonHovered] = ImVec4(0.30f, 0.31f, 0.31f, 1.00f);
+	colors[ImGuiCol_ButtonActive] = ImVec4(0.15f, 0.15f, 0.15f, 1.00f);
+
+	colors[ImGuiCol_Header] = ImVec4(0.20f, 0.20f, 0.21f, 1.00f);
+	colors[ImGuiCol_HeaderHovered] = ImVec4(0.30f, 0.31f, 0.31f, 1.00f);
+	colors[ImGuiCol_HeaderActive] = ImVec4(0.15f, 0.15f, 0.15f, 1.00f);
+
+	colors[ImGuiCol_Tab] = ImVec4(0.15f, 0.15f, 0.15f, 1.00f);
+	colors[ImGuiCol_TabHovered] = ImVec4(0.38f, 0.38f, 0.38f, 0.80f);
+	colors[ImGuiCol_TabActive] = ImVec4(0.28f, 0.28f, 0.28f, 1.00f);
+	colors[ImGuiCol_TabUnfocused] = ImVec4(0.15f, 0.15f, 0.15f, 1.00f);
+	colors[ImGuiCol_TabUnfocusedActive] = ImVec4(0.20f, 0.20f, 0.21f, 1.00f);
+
+	colors[ImGuiCol_Separator] = ImVec4(0.15f, 0.15f, 0.15f, 1.00f);
+	colors[ImGuiCol_SeparatorHovered] = ImVec4(0.38f, 0.38f, 0.38f, 0.80f);
+	colors[ImGuiCol_SeparatorActive] = ImVec4(0.28f, 0.28f, 0.28f, 1.00f);
+
+	colors[ImGuiCol_ResizeGrip] = ImVec4(0.15f, 0.15f, 0.15f, 1.00f);
+	colors[ImGuiCol_ResizeGripHovered] = ImVec4(0.38f, 0.38f, 0.38f, 0.80f);
+	colors[ImGuiCol_ResizeGripActive] = ImVec4(0.28f, 0.28f, 0.28f, 1.00f);
+
+	/*
+	colors[ImGuiCol_CheckMark]              = ImVec4(0.98f, 0.93f, 0.26f, 1.00f);
+	colors[ImGuiCol_SliderGrab]             = ImVec4(0.98f, 0.93f, 0.26f, 1.00f);
+	colors[ImGuiCol_SliderGrabActive]       = ImVec4(1.00f, 0.95f, 0.27f, 1.00f);
+	*/
+
+	ImGui::SetColorEditOptions(ImGuiColorEditFlags_PickerHueWheel);
 }

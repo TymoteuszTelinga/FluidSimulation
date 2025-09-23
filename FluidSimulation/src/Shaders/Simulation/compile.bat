@@ -10,4 +10,3 @@ del "DensityStep.spv"
 del "PressureStep.spv"
 del "ViscosityStep.spv"
 del "UpdateStep.spv"
-pause
