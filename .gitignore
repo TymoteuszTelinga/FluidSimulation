@@ -38,7 +38,7 @@
 # Binaries
 **/bin/
 **/bin-int/
-./FluidSimulation/vendor/Vulkan/Lib
+FluidSimulation/vendor/Vulkan/Lib
 
 # Additional folders
 **/TODO.txt
